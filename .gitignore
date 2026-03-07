@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# Generated output
+out/
+
+# Evaluation data
+.eval/
+
+# macOS
+.DS_Store
+
+# pytest
+.pytest_cache/
+
+# Personal/internal
+5.2-pro-planning.md
+walkthrough-repomix.txt
+.repomix-walkthrough-skill.json
+ui-review-presentation-workflow.md

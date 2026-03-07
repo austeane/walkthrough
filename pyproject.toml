@@ -1,0 +1,43 @@
+[project]
+name = "walkthrough"
+version = "0.1.0"
+description = "Generate evidence-backed walkthroughs from agent session histories"
+requires-python = ">=3.11"
+dependencies = [
+    "pygments>=2.17",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+media = ["Pillow>=10.0"]
+capture = ["playwright>=1.40"]
+
+[project.scripts]
+walkthrough-discover = "scripts.discover_sessions:main"
+walkthrough-strip = "scripts.strip_binary:main"
+walkthrough-normalize-claude = "scripts.normalize_claude:main"
+walkthrough-normalize-codex = "scripts.normalize_codex:main"
+walkthrough-project = "scripts.project_events:main"
+walkthrough-cards = "scripts.extract_session_cards:main"
+walkthrough-chunk = "scripts.chunk_events:main"
+walkthrough-merge = "scripts.merge_summaries:main"
+walkthrough-render = "scripts.render_html:main"
+walkthrough-validate = "scripts.validate_pipeline:main"
+walkthrough-batch = "scripts.batch_pipeline:main"
+walkthrough-capture = "scripts.capture_screenshots:main"
+walkthrough-inject-media = "scripts.inject_capture_media:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["scripts"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

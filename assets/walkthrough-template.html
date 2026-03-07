@@ -1,0 +1,1963 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-layout="dossier">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ data.overview.goal | default("Walkthrough") }}</title>
+
+    <style>
+        /* =========================================
+           CSS CUSTOM PROPERTIES
+           ========================================= */
+        :root {
+            /* Dark mode (default) */
+            --bg-primary: #0a0e14;
+            --bg-secondary: #12171e;
+            --bg-tertiary: #1a2029;
+            --bg-elevated: #1e2530;
+            --text-primary: #e6edf3;
+            --text-secondary: #7d8590;
+            --text-tertiary: #545d68;
+            --accent: #58a6ff;
+            --accent-secondary: #79c0ff;
+            --accent-glow: rgba(88, 166, 255, 0.12);
+            --accent-glow-strong: rgba(88, 166, 255, 0.25);
+            --border: rgba(48, 54, 61, 0.6);
+            --border-subtle: rgba(48, 54, 61, 0.3);
+            --diff-add-bg: rgba(63, 185, 80, 0.12);
+            --diff-del-bg: rgba(248, 81, 73, 0.12);
+            --diff-add-text: #3fb950;
+            --diff-del-text: #f85149;
+            --badge-inferred: #d29922;
+            --badge-speculative: #f85149;
+            --overlay-bg: rgba(0, 0, 0, 0.85);
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+            --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.3);
+            --glass: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.08);
+
+            /* Typography */
+            --font-display: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+            --title-size: clamp(1.5rem, 4vw, 3rem);
+            --h2-size: clamp(1.25rem, 3vw, 2rem);
+            --h3-size: clamp(1rem, 2vw, 1.5rem);
+            --body-size: clamp(0.8rem, 1.3vw, 1rem);
+            --small-size: clamp(0.7rem, 1vw, 0.85rem);
+            --mono-size: clamp(0.7rem, 1.1vw, 0.9rem);
+
+            /* Spacing */
+            --slide-padding: clamp(1.25rem, 3vw, 3rem);
+            --sidebar-width: clamp(220px, 20vw, 280px);
+            --content-gap: clamp(0.5rem, 1.5vw, 1.5rem);
+
+            /* Border radius */
+            --radius-sm: 4px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+
+            /* Animation */
+            --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Light mode */
+        [data-theme="light"] {
+            --bg-primary: #f8f9fb;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #eef1f5;
+            --bg-elevated: #ffffff;
+            --text-primary: #1a1f2b;
+            --text-secondary: #5a6270;
+            --text-tertiary: #8b919a;
+            --accent: #2563eb;
+            --accent-secondary: #3b82f6;
+            --accent-glow: rgba(37, 99, 235, 0.08);
+            --accent-glow-strong: rgba(37, 99, 235, 0.15);
+            --border: rgba(0, 0, 0, 0.1);
+            --border-subtle: rgba(0, 0, 0, 0.05);
+            --diff-add-bg: rgba(63, 185, 80, 0.08);
+            --diff-del-bg: rgba(248, 81, 73, 0.08);
+            --diff-add-text: #1a7f37;
+            --diff-del-text: #cf222e;
+            --badge-inferred: #9a6700;
+            --badge-speculative: #cf222e;
+            --overlay-bg: rgba(0, 0, 0, 0.5);
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+            --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+            --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+            --glass: rgba(255, 255, 255, 0.7);
+            --glass-border: rgba(0, 0, 0, 0.08);
+        }
+
+        /* =========================================
+           BASE STYLES
+           ========================================= */
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: var(--font-display);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        html[data-layout="presentation"] {
+            scroll-snap-type: y mandatory;
+            height: 100%;
+        }
+
+        html[data-layout="presentation"] body {
+            height: 100%;
+        }
+
+        /* =========================================
+           PROGRESS BAR
+           ========================================= */
+        .progress-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent), var(--accent-secondary));
+            z-index: 1000;
+            transition: width 0.4s var(--ease-out-expo);
+            width: 0%;
+            box-shadow: 0 0 12px var(--accent-glow-strong);
+        }
+
+        /* =========================================
+           HEADER
+           ========================================= */
+        .header {
+            position: fixed;
+            top: 0;
+            right: 0;
+            left: var(--sidebar-width);
+            height: 48px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 clamp(0.75rem, 2vw, 1.5rem);
+            z-index: 100;
+            gap: 0.5rem;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 0;
+        }
+
+        .hamburger {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            cursor: pointer;
+            padding: 4px;
+            font-size: 1.25rem;
+            line-height: 1;
+        }
+
+        .header-title {
+            font-size: var(--small-size);
+            font-weight: 600;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-shrink: 0;
+        }
+
+        .search-container {
+            position: relative;
+        }
+
+        .search-input {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-size: var(--small-size);
+            padding: 5px 8px 5px 28px;
+            width: clamp(120px, 15vw, 200px);
+            outline: none;
+            font-family: var(--font-display);
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-tertiary);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            pointer-events: none;
+        }
+
+        .theme-toggle {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px 10px;
+            font-size: var(--small-size);
+            line-height: 1;
+            font-family: var(--font-display);
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            background: var(--accent-glow);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* =========================================
+           SIDEBAR TOC
+           ========================================= */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: var(--sidebar-width);
+            height: 100%;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s var(--ease-out-expo);
+        }
+
+        .sidebar-header {
+            padding: clamp(0.75rem, 1.5vw, 1.25rem);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            background: linear-gradient(135deg, var(--accent-glow) 0%, transparent 60%);
+        }
+
+        .sidebar-title {
+            font-size: var(--small-size);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+        }
+
+        .toc {
+            list-style: none;
+            overflow-y: auto;
+            flex: 1;
+            padding: 0.5rem 0;
+        }
+
+        .toc::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .toc::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .toc::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        .toc-item {
+            display: block;
+        }
+
+        .toc-link {
+            display: flex;
+            align-items: baseline;
+            gap: 0.5rem;
+            padding: 0.45rem clamp(0.75rem, 1.5vw, 1.25rem);
+            text-decoration: none;
+            color: var(--text-secondary);
+            font-size: var(--small-size);
+            border-left: 2px solid transparent;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .toc-link:hover {
+            color: var(--text-primary);
+            background: var(--glass);
+            border-left-color: var(--border);
+        }
+
+        .toc-link.active {
+            color: var(--accent);
+            border-left-color: var(--accent);
+            background: var(--accent-glow);
+            font-weight: 500;
+        }
+
+        .toc-link.search-hidden {
+            display: none;
+        }
+
+        .toc-number {
+            font-weight: 600;
+            font-size: 0.65em;
+            opacity: 0.5;
+            flex-shrink: 0;
+            min-width: 1.3em;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .toc-link.active .toc-number {
+            opacity: 1;
+        }
+
+        .toc-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* =========================================
+           MAIN CONTENT (STEPS)
+           ========================================= */
+        .main {
+            margin-left: var(--sidebar-width);
+            padding-top: 48px;
+            padding-bottom: 3rem;
+        }
+
+        .step {
+            width: auto;
+            max-width: min(1100px, calc(100vw - var(--sidebar-width) - 3rem));
+            min-height: auto;
+            overflow: visible;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            padding: var(--slide-padding);
+            padding-top: clamp(2rem, 4vw, 3.5rem);
+            padding-bottom: clamp(2rem, 4vw, 3.5rem);
+            margin: 0 auto;
+        }
+
+        /* Separator between steps in dossier mode */
+        .step + .step {
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        html[data-layout="presentation"] .step + .step {
+            border-top: none;
+        }
+
+        html[data-layout="presentation"] .step {
+            width: calc(100vw - var(--sidebar-width));
+            max-width: none;
+            min-height: calc(100dvh - 48px);
+            overflow: hidden;
+            scroll-snap-align: start;
+            margin: 0;
+        }
+
+        .step-content {
+            display: flex;
+            flex-direction: column;
+            max-height: none;
+            overflow: visible;
+            gap: var(--content-gap);
+        }
+
+        html[data-layout="presentation"] .step-content {
+            flex: 1;
+            max-height: 100%;
+            overflow: hidden;
+        }
+
+        .step-header {
+            flex-shrink: 0;
+            padding-bottom: clamp(0.25rem, 0.5vw, 0.5rem);
+        }
+
+        .step-number {
+            font-size: 0.65em;
+            font-weight: 700;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            margin-bottom: 0.4rem;
+            display: inline-block;
+            padding: 2px 0;
+        }
+
+        .step-title {
+            font-size: var(--h2-size);
+            font-weight: 700;
+            line-height: 1.25;
+            margin-bottom: 0.35rem;
+            letter-spacing: -0.01em;
+        }
+
+        .step-intent {
+            font-size: var(--body-size);
+            color: var(--text-secondary);
+            font-style: italic;
+            line-height: 1.5;
+            max-width: 60ch;
+        }
+
+        /* =========================================
+           CLAIMS
+           ========================================= */
+        .claims {
+            flex: none;
+            overflow: visible;
+            display: flex;
+            flex-direction: column;
+            gap: clamp(0.4rem, 1vw, 0.75rem);
+        }
+
+        html[data-layout="presentation"] .claims {
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .claim {
+            font-size: var(--body-size);
+            line-height: 1.6;
+            color: var(--text-primary);
+            padding: clamp(0.5rem, 1vw, 0.75rem) clamp(0.6rem, 1.2vw, 1rem);
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-md);
+            border-left: 3px solid var(--text-tertiary);
+            transition: border-color 0.2s ease;
+        }
+
+        .claim:hover {
+            border-left-color: var(--accent);
+        }
+
+        .claim.grounded {
+            border-left-color: var(--text-tertiary);
+        }
+
+        .claim.grounded:hover {
+            border-left-color: var(--accent);
+        }
+
+        .claim.inferred {
+            border-left-color: var(--badge-inferred);
+            background: rgba(210, 153, 34, 0.04);
+        }
+
+        .claim.inferred:hover {
+            border-left-color: var(--badge-inferred);
+        }
+
+        .claim.speculative {
+            border-left-color: var(--badge-speculative);
+            background: rgba(248, 81, 73, 0.04);
+        }
+
+        .claim.speculative:hover {
+            border-left-color: var(--badge-speculative);
+        }
+
+        .claim.speculative::before {
+            content: "speculative";
+            display: inline-block;
+            font-size: 0.6em;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            background: var(--badge-speculative);
+            color: #fff;
+            padding: 2px 7px;
+            border-radius: var(--radius-sm);
+            margin-right: 0.5em;
+            vertical-align: middle;
+        }
+
+        /* =========================================
+           STEP FOOTER (summary + evidence button)
+           ========================================= */
+        .step-footer {
+            flex-shrink: 0;
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 1rem;
+            padding-top: clamp(0.75rem, 1.5vw, 1.25rem);
+            margin-top: clamp(0.5rem, 1vw, 1rem);
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .step-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+        }
+
+        .meta-tag {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            padding: 3px 8px;
+            white-space: nowrap;
+            font-family: var(--font-mono);
+            font-size: var(--mono-size);
+            transition: all 0.2s ease;
+        }
+
+        .meta-tag:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--accent-glow);
+        }
+
+        .evidence-btn {
+            flex-shrink: 0;
+            background: var(--accent-glow);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-md);
+            padding: 6px 18px;
+            font-size: var(--small-size);
+            font-weight: 600;
+            cursor: pointer;
+            font-family: var(--font-display);
+            transition: all 0.25s ease;
+            backdrop-filter: blur(4px);
+        }
+
+        .evidence-btn:hover {
+            background: var(--accent);
+            color: #fff;
+            box-shadow: 0 0 20px var(--accent-glow-strong);
+        }
+
+        [data-theme="light"] .evidence-btn:hover {
+            color: #fff;
+        }
+
+        /* =========================================
+           OVERVIEW STEP (first step)
+           ========================================= */
+        .overview-step .step-header {
+            padding-bottom: clamp(0.5rem, 1vw, 1rem);
+        }
+
+        .overview-step .overview-summary {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: clamp(0.35rem, 0.8vw, 0.6rem);
+        }
+
+        .overview-summary li {
+            font-size: var(--body-size);
+            padding-left: 1.5em;
+            position: relative;
+            line-height: 1.55;
+        }
+
+        .overview-summary li::before {
+            content: "";
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--accent);
+            position: absolute;
+            left: 0.2em;
+            top: 0.6em;
+        }
+
+        .overview-key-files {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin-top: 0.35rem;
+        }
+
+        .key-file {
+            font-family: var(--font-mono);
+            font-size: var(--mono-size);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            padding: 3px 10px;
+            border-radius: var(--radius-sm);
+            transition: all 0.2s ease;
+        }
+
+        .key-file:hover {
+            border-color: var(--accent);
+            color: var(--accent) !important;
+            background: var(--accent-glow);
+        }
+
+        .overview-diagram {
+            flex: 1 1 auto;
+            min-height: clamp(240px, 38vh, 520px);
+            overflow: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: clamp(0.5rem, 1.2vw, 1rem);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            background: var(--bg-secondary);
+        }
+
+        .overview-diagram pre {
+            width: 100%;
+            min-height: 100%;
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: var(--font-mono);
+            font-size: var(--mono-size);
+        }
+
+        .overview-diagram svg {
+            width: 100%;
+            height: auto;
+            max-height: 100%;
+        }
+
+        /* =========================================
+           EVIDENCE MODAL OVERLAY
+           ========================================= */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--overlay-bg);
+            z-index: 500;
+            display: none;
+            align-items: stretch;
+            justify-content: center;
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--bg-primary);
+            width: min(95vw, 900px);
+            height: 100%;
+            overflow-y: auto;
+            padding: clamp(1.5rem, 3vw, 2.5rem);
+            position: relative;
+            border-left: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+        }
+
+        .modal::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .modal::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .modal::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        .modal-close {
+            position: sticky;
+            top: 0;
+            float: right;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 5px 14px;
+            font-size: var(--body-size);
+            font-family: var(--font-display);
+            z-index: 1;
+            transition: all 0.2s ease;
+        }
+
+        .modal-close:hover {
+            background: var(--accent-glow);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .modal-title {
+            font-size: var(--h2-size);
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            letter-spacing: -0.01em;
+        }
+
+        .modal-section {
+            margin-bottom: 2rem;
+        }
+
+        .modal-section-title {
+            font-size: var(--h3-size);
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: var(--accent);
+            letter-spacing: -0.01em;
+        }
+
+        /* =========================================
+           DIFF RENDERING
+           ========================================= */
+        .diff-block {
+            margin-bottom: 1rem;
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .diff-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-tertiary);
+            padding: 6px 12px;
+            font-family: var(--font-mono);
+            font-size: var(--mono-size);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .diff-file-path {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .diff-editor-links {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .editor-link {
+            font-size: 0.75em;
+            color: var(--accent);
+            text-decoration: none;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: var(--accent-glow);
+            white-space: nowrap;
+        }
+
+        .editor-link:hover {
+            text-decoration: underline;
+        }
+
+        .diff-content {
+            overflow-x: auto;
+        }
+
+        .diff-content pre {
+            margin: 0;
+            padding: 0.5rem;
+            font-family: var(--font-mono);
+            font-size: var(--mono-size);
+            line-height: 1.5;
+        }
+
+        .diff-line-add {
+            background: var(--diff-add-bg);
+            color: var(--diff-add-text);
+        }
+
+        .diff-line-del {
+            background: var(--diff-del-bg);
+            color: var(--diff-del-text);
+        }
+
+        .diff-line-ctx {
+            color: var(--text-secondary);
+        }
+
+        .diff-line-hdr {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        /* Pygments syntax highlighting */
+        {{ pygments_css }}
+
+        .diff-content .highlight pre {
+            background: transparent !important;
+            margin: 0;
+            padding: 0.5rem;
+        }
+
+        /* =========================================
+           COMMAND OUTPUT
+           ========================================= */
+        .command-block {
+            margin-bottom: 0.75rem;
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .command-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-tertiary);
+            padding: 6px 12px;
+            font-family: var(--font-mono);
+            font-size: var(--mono-size);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .command-status {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .command-status.pass { background: var(--diff-add-text); }
+        .command-status.fail { background: var(--diff-del-text); }
+
+        .command-output {
+            padding: 0.5rem;
+            font-family: var(--font-mono);
+            font-size: var(--mono-size);
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        /* =========================================
+           DECISIONS & ERRORS
+           ========================================= */
+        .decision-item, .error-item {
+            margin-bottom: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            border-left: 3px solid var(--accent);
+        }
+
+        .decision-item strong, .error-item strong {
+            color: var(--accent);
+        }
+
+        .decision-rationale, .error-resolution {
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        /* =========================================
+           SOURCE LINES (in modal)
+           ========================================= */
+        .source-lines {
+            font-family: var(--font-mono);
+            font-size: var(--mono-size);
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+        }
+
+        .source-line-ref {
+            padding: 2px 6px;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            display: inline-block;
+            margin: 2px 0;
+        }
+
+        /* =========================================
+           SCROLL ANIMATIONS
+           ========================================= */
+        .reveal {
+            opacity: 0;
+            transform: translateY(16px);
+            transition: opacity 0.6s var(--ease-out-expo),
+                        transform 0.6s var(--ease-out-expo);
+        }
+
+        .step.visible .reveal {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .reveal:nth-child(2) { transition-delay: 0.06s; }
+        .reveal:nth-child(3) { transition-delay: 0.12s; }
+        .reveal:nth-child(4) { transition-delay: 0.18s; }
+        .reveal:nth-child(5) { transition-delay: 0.24s; }
+
+        /* =========================================
+           RESPONSIVE: sidebar collapse
+           ========================================= */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+                box-shadow: 8px 0 30px rgba(0, 0, 0, 0.4);
+            }
+
+            .header {
+                left: 0;
+            }
+
+            .main {
+                margin-left: 0;
+            }
+
+            .step {
+                width: 100vw;
+            }
+
+            .overview-diagram {
+                min-height: clamp(180px, 28vh, 320px);
+            }
+
+            .hamburger {
+                display: block;
+            }
+        }
+
+        /* Short viewport adjustments */
+        @media (max-height: 700px) {
+            :root {
+                --slide-padding: clamp(0.75rem, 2vw, 2rem);
+                --content-gap: clamp(0.4rem, 1vw, 1rem);
+                --title-size: clamp(1.25rem, 3.5vw, 2.5rem);
+                --h2-size: clamp(1.1rem, 2.5vw, 1.75rem);
+            }
+        }
+
+        @media (max-height: 600px) {
+            :root {
+                --slide-padding: clamp(0.5rem, 1.5vw, 1.5rem);
+                --content-gap: clamp(0.3rem, 0.8vw, 0.75rem);
+                --h2-size: clamp(1rem, 2vw, 1.5rem);
+                --body-size: clamp(0.7rem, 1.1vw, 0.9rem);
+            }
+        }
+
+        @media (max-height: 500px) {
+            :root {
+                --slide-padding: clamp(0.4rem, 1vw, 1rem);
+                --h2-size: clamp(0.9rem, 1.8vw, 1.25rem);
+                --body-size: clamp(0.65rem, 1vw, 0.85rem);
+            }
+
+            .step-intent { display: none; }
+        }
+
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.2s !important;
+            }
+            html { scroll-behavior: auto; }
+        }
+
+        /* =========================================
+           MEDIA GALLERY & LIGHTBOX
+           ========================================= */
+        .media-gallery {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: var(--glass);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--glass-border);
+        }
+
+        .media-gallery h4 {
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .media-thumbs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .media-thumb {
+            max-width: 300px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.25s var(--ease-out-expo), box-shadow 0.25s ease;
+            position: relative;
+        }
+
+        .media-thumb:hover {
+            transform: scale(1.03) translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .media-thumb img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .media-caption {
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+            padding: 0.4rem 0.6rem;
+            background: var(--bg-secondary);
+        }
+
+        .media-compare {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 0.5rem;
+        }
+
+        .media-compare-label {
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
+            text-align: center;
+        }
+
+        .media-compare-side {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .media-lightbox {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+
+        .media-lightbox.active {
+            display: flex;
+        }
+
+        .media-lightbox img {
+            max-width: 90vw;
+            max-height: 80vh;
+            object-fit: contain;
+            border-radius: 4px;
+        }
+
+        .media-lightbox-caption {
+            color: #e6edf3;
+            font-size: var(--body-size);
+            margin-top: 1rem;
+            text-align: center;
+            max-width: 80vw;
+        }
+
+        .media-lightbox-close {
+            position: absolute;
+            top: 1rem;
+            right: 1.5rem;
+            background: none;
+            border: none;
+            color: #e6edf3;
+            font-size: 2rem;
+            cursor: pointer;
+            z-index: 2001;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .media-lightbox-close:hover {
+            opacity: 1;
+        }
+
+        .media-lightbox-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #e6edf3;
+            font-size: 2rem;
+            cursor: pointer;
+            padding: 1rem 0.75rem;
+            border-radius: 4px;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+        }
+
+        .media-lightbox-nav:hover {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .media-lightbox-prev {
+            left: 1rem;
+        }
+
+        .media-lightbox-next {
+            right: 1rem;
+        }
+
+        @media (max-width: 768px) {
+            .media-compare {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Progress bar -->
+    <div class="progress-bar" id="progressBar"></div>
+
+    <!-- Sidebar TOC -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-title">Walkthrough</div>
+        </div>
+        <ul class="toc" id="toc">
+            <li class="toc-item">
+                <a class="toc-link" data-step="0" href="#overview">
+                    <span class="toc-number">0</span>
+                    <span class="toc-text">Overview</span>
+                </a>
+            </li>
+            {% for step in data.steps %}
+            <li class="toc-item">
+                <a class="toc-link" data-step="{{ loop.index }}" href="#{{ step.id }}">
+                    <span class="toc-number">{{ loop.index }}</span>
+                    <span class="toc-text">{{ step.title }}</span>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+    </nav>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <button class="hamburger" id="hamburger" aria-label="Toggle sidebar">&#9776;</button>
+            <span class="header-title">{{ data.overview.goal | default("Walkthrough") }}</span>
+        </div>
+        <div class="header-right">
+            <div class="search-container">
+                <span class="search-icon">&#128269;</span>
+                <input type="text" class="search-input" id="searchInput" placeholder="Search steps..." aria-label="Search steps">
+            </div>
+            <button class="theme-toggle" id="layoutToggle" aria-label="Toggle layout">Dossier</button>
+            <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+                <span class="theme-icon">&#9789;</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main content -->
+    <main class="main" id="main">
+        <!-- Overview step -->
+        <section class="step overview-step" id="overview" data-step="0">
+            <div class="step-content">
+                <div class="step-header reveal">
+                    <div class="step-number">Overview</div>
+                    <h1 class="step-title" style="font-size: var(--title-size); letter-spacing: -0.02em; line-height: 1.15;">{{ data.overview.goal | default("") }}</h1>
+                </div>
+                {% if data.overview.summary %}
+                <ul class="overview-summary reveal">
+                    {% for item in data.overview.summary %}
+                    <li>{{ item }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% if data.overview.key_files %}
+                <div class="reveal">
+                    <div style="font-size: var(--small-size); color: var(--text-secondary); margin-bottom: 0.25rem; font-weight: 600;">Key Files</div>
+                    <div class="overview-key-files">
+                        {% for ref in data.overview.key_file_refs | default([]) %}
+                        <a class="key-file" href="{{ ref.cursor_href }}" data-abs-path="{{ ref.abs_path }}" style="text-decoration:none;color:inherit;cursor:pointer;">{{ ref.label_path }}</a>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% if data.overview._diagram_svg %}
+                <div class="overview-diagram reveal">
+                    {{ data.overview._diagram_svg | safe }}
+                </div>
+                {% elif data.overview.diagram_mermaid %}
+                <div class="overview-diagram reveal">
+                    <pre>{{ data.overview.diagram_mermaid }}</pre>
+                </div>
+                {% endif %}
+            </div>
+        </section>
+
+        <!-- Walkthrough steps -->
+        {% for step in data.steps %}
+        <section class="step" id="{{ step.id }}" data-step="{{ loop.index }}">
+            <div class="step-content">
+                <div class="step-header reveal">
+                    <div class="step-number">Step {{ loop.index }}</div>
+                    <h2 class="step-title">{{ step.title }}</h2>
+                    {% if step.intent %}
+                    <div class="step-intent">{{ step.intent }}</div>
+                    {% endif %}
+                </div>
+                <div class="claims reveal">
+                    {% for claim in step.claims | default([]) %}
+                    <div class="claim {{ claim.confidence | default('grounded') }}">{{ claim.text }}</div>
+                    {% endfor %}
+                </div>
+                {% if step.evidence and step.evidence.media %}
+                <div class="media-gallery reveal" data-step-id="{{ step.id }}">
+                    <h4>Screenshots</h4>
+                    <div class="media-thumbs" id="media-{{ step.id }}"></div>
+                </div>
+                {% endif %}
+                <div class="step-footer reveal">
+                    <div class="step-meta">
+                        {% for ref in step._file_refs | default([]) %}
+                        <a class="meta-tag" href="{{ ref.cursor_href }}" data-abs-path="{{ ref.abs_path }}" style="text-decoration:none;color:inherit;cursor:pointer;">{{ ref.label_path }}</a>
+                        {% endfor %}
+                        {% for cmd in step.evidence.commands | default([]) %}
+                        <span class="meta-tag">$ {{ cmd.cmd | default(cmd.command | default("")) | truncate(30) }}</span>
+                        {% endfor %}
+                    </div>
+                    {% if step.evidence %}
+                    <button class="evidence-btn" data-step-id="{{ step.id }}">{{ step._evidence_summary }}</button>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+        {% endfor %}
+    </main>
+
+    <!-- Evidence modal overlay -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1">
+            <button class="modal-close" id="modalClose">Close &times;</button>
+            <h2 class="modal-title" id="modalTitle"></h2>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <!-- Embedded data -->
+    <script>const DATA = {{ data_json }};</script>
+
+    <script>
+    /* =========================================
+       WALKTHROUGH VIEWER
+       ========================================= */
+    class WalkthroughViewer {
+        constructor() {
+            this.steps = document.querySelectorAll('.step');
+            this.tocLinks = document.querySelectorAll('.toc-link');
+            this.currentStep = 0;
+            this.totalSteps = this.steps.length;
+            this.modalOpen = false;
+            this.lastFocusedElement = null;
+
+            this.progressBar = document.getElementById('progressBar');
+            this.sidebar = document.getElementById('sidebar');
+            this.hamburger = document.getElementById('hamburger');
+            this.searchInput = document.getElementById('searchInput');
+            this.layoutToggle = document.getElementById('layoutToggle');
+            this.themeToggle = document.getElementById('themeToggle');
+            this.modalOverlay = document.getElementById('modalOverlay');
+            this.modal = document.getElementById('modal');
+            this.modalClose = document.getElementById('modalClose');
+            this.modalTitle = document.getElementById('modalTitle');
+            this.modalBody = document.getElementById('modalBody');
+
+            this.initLayout();
+            this.initTheme();
+            this.initObserver();
+            this.initKeyboard();
+            this.initTouch();
+            this.initTOC();
+            this.initHamburger();
+            this.initSearch();
+            this.initEvidenceButtons();
+            this.initModal();
+            this.initMediaGalleries();
+            this.initLightbox();
+            this.initInitialStep();
+        }
+
+        /* --- Layout --- */
+        initLayout() {
+            const saved = localStorage.getItem('walkthrough-layout') || 'dossier';
+            document.documentElement.setAttribute('data-layout', saved);
+            this.updateLayoutLabel();
+
+            this.layoutToggle.addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-layout');
+                const next = current === 'presentation' ? 'dossier' : 'presentation';
+                document.documentElement.setAttribute('data-layout', next);
+                localStorage.setItem('walkthrough-layout', next);
+                this.updateLayoutLabel();
+            });
+        }
+
+        updateLayoutLabel() {
+            const current = document.documentElement.getAttribute('data-layout');
+            this.layoutToggle.textContent = current === 'presentation' ? 'Presentation' : 'Dossier';
+        }
+
+        /* --- Theme --- */
+        initTheme() {
+            const saved = localStorage.getItem('walkthrough-theme');
+            if (saved) {
+                document.documentElement.setAttribute('data-theme', saved);
+            }
+            this.updateThemeIcon();
+
+            this.themeToggle.addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-theme');
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                localStorage.setItem('walkthrough-theme', next);
+                this.updateThemeIcon();
+            });
+        }
+
+        updateThemeIcon() {
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            this.themeToggle.querySelector('.theme-icon').textContent = isDark ? '\u263D' : '\u2600';
+        }
+
+        /* --- Intersection Observer for current step --- */
+        initObserver() {
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        const idx = parseInt(entry.target.dataset.step, 10);
+                        this.setCurrentStep(idx);
+                    }
+                });
+            }, {
+                threshold: 0.5
+            });
+
+            this.steps.forEach(step => observer.observe(step));
+        }
+
+        setCurrentStep(idx) {
+            this.currentStep = idx;
+            this.tocLinks.forEach(link => {
+                link.classList.toggle('active', parseInt(link.dataset.step, 10) === idx);
+            });
+            const pct = this.totalSteps > 1 ? (idx / (this.totalSteps - 1)) * 100 : 100;
+            this.progressBar.style.width = pct + '%';
+        }
+
+        revealStep(step) {
+            if (!step) return;
+            step.classList.add('visible');
+            const idx = parseInt(step.dataset.step, 10);
+            if (!Number.isNaN(idx)) this.setCurrentStep(idx);
+        }
+
+        scrollToStep(step, options = {}) {
+            if (!step) return;
+            const behavior = options.behavior || 'smooth';
+            const updateHash = options.updateHash !== false;
+            this.revealStep(step);
+            step.scrollIntoView({ behavior, block: 'start' });
+            if (updateHash && step.id) {
+                history.replaceState(null, '', '#' + step.id);
+            }
+        }
+
+        initInitialStep() {
+            const hashId = decodeURIComponent((location.hash || '').replace(/^#/, ''));
+            const target = hashId ? document.getElementById(hashId) : this.steps[0];
+            if (!target) return;
+            requestAnimationFrame(() => this.scrollToStep(target, { behavior: 'auto', updateHash: false }));
+        }
+
+        /* --- Keyboard navigation --- */
+        initKeyboard() {
+            document.addEventListener('keydown', (e) => {
+                if (this.modalOpen) {
+                    if (e.key === 'Escape') this.closeModal();
+                    if (e.key === 'Tab') this.trapModalFocus(e);
+                    return;
+                }
+                if (e.target.tagName === 'INPUT') return;
+
+                switch (e.key) {
+                    case 'ArrowDown':
+                    case 'ArrowRight':
+                    case ' ':
+                    case 'PageDown':
+                        e.preventDefault();
+                        this.goRelative(1);
+                        break;
+                    case 'ArrowUp':
+                    case 'ArrowLeft':
+                    case 'PageUp':
+                        e.preventDefault();
+                        this.goRelative(-1);
+                        break;
+                    case 'Home':
+                        e.preventDefault();
+                        this.goToBoundary('start');
+                        break;
+                    case 'End':
+                        e.preventDefault();
+                        this.goToBoundary('end');
+                        break;
+                    case 'Escape':
+                        this.closeSidebar();
+                        break;
+                }
+            });
+        }
+
+        getVisibleSteps() {
+            return Array.from(this.steps).filter(step => step.style.display !== 'none');
+        }
+
+        getCurrentVisibleIndex() {
+            const visible = this.getVisibleSteps();
+            return visible.findIndex(step => parseInt(step.dataset.step, 10) === this.currentStep);
+        }
+
+        goRelative(delta) {
+            const visible = this.getVisibleSteps();
+            if (visible.length === 0) return;
+            const currentVisibleIndex = this.getCurrentVisibleIndex();
+            const baseIndex = currentVisibleIndex === -1 ? 0 : currentVisibleIndex;
+            const nextIndex = Math.max(0, Math.min(visible.length - 1, baseIndex + delta));
+            this.scrollToStep(visible[nextIndex]);
+        }
+
+        goToBoundary(which) {
+            const visible = this.getVisibleSteps();
+            if (visible.length === 0) return;
+            const target = which === 'end' ? visible[visible.length - 1] : visible[0];
+            this.scrollToStep(target);
+        }
+
+        goToStep(idx) {
+            if (idx < 0 || idx >= this.totalSteps) return;
+            this.scrollToStep(this.steps[idx]);
+        }
+
+        /* --- Touch/swipe --- */
+        initTouch() {
+            let startY = 0;
+            const main = document.getElementById('main');
+
+            main.addEventListener('touchstart', (e) => {
+                startY = e.touches[0].clientY;
+            }, { passive: true });
+
+            main.addEventListener('touchend', (e) => {
+                const dy = startY - e.changedTouches[0].clientY;
+                if (Math.abs(dy) > 50) {
+                    if (dy > 0) this.goRelative(1);
+                    else this.goRelative(-1);
+                }
+            }, { passive: true });
+        }
+
+        /* --- TOC click --- */
+        initTOC() {
+            this.tocLinks.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const idx = parseInt(link.dataset.step, 10);
+                    this.goToStep(idx);
+                    this.closeSidebar();
+                });
+            });
+        }
+
+        /* --- Hamburger / sidebar toggle --- */
+        initHamburger() {
+            this.hamburger.addEventListener('click', () => {
+                this.sidebar.classList.toggle('open');
+            });
+
+            this.modalOverlay.addEventListener('click', (e) => {
+                if (e.target === this.modalOverlay) this.closeModal();
+            });
+        }
+
+        closeSidebar() {
+            this.sidebar.classList.remove('open');
+        }
+
+        /* --- Search --- */
+        initSearch() {
+            this.searchInput.addEventListener('input', () => {
+                const q = this.searchInput.value.toLowerCase().trim();
+                this.steps.forEach((step, idx) => {
+                    const text = step.textContent.toLowerCase();
+                    const matches = !q || text.includes(q);
+                    step.style.display = matches ? '' : 'none';
+                    if (this.tocLinks[idx]) {
+                        this.tocLinks[idx].classList.toggle('search-hidden', !matches);
+                    }
+                });
+                const visible = this.getVisibleSteps();
+                if (visible.length > 0 && visible.every(step => parseInt(step.dataset.step, 10) !== this.currentStep)) {
+                    this.scrollToStep(visible[0], { updateHash: false });
+                }
+            });
+        }
+
+        /* --- Evidence buttons --- */
+        initEvidenceButtons() {
+            document.querySelectorAll('.evidence-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const stepId = btn.dataset.stepId;
+                    this.openEvidence(stepId);
+                });
+            });
+        }
+
+        /* --- Evidence modal --- */
+        initModal() {
+            this.modalClose.addEventListener('click', () => this.closeModal());
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && this.modalOpen) this.closeModal();
+            });
+        }
+
+        openEvidence(stepId) {
+            const allSteps = [
+                { id: 'overview', title: 'Overview', evidence: {} },
+                ...(DATA.steps || [])
+            ];
+            const step = allSteps.find(s => s.id === stepId);
+            if (!step || !step.evidence) return;
+
+            this.lastFocusedElement = document.activeElement;
+            this.modalTitle.textContent = 'Evidence: ' + (step.title || stepId);
+            this.modalBody.innerHTML = this.renderEvidence(step.evidence);
+            this.modalOverlay.classList.add('open');
+            this.modalOpen = true;
+            document.body.style.overflow = 'hidden';
+            this.modalClose.focus();
+        }
+
+        closeModal() {
+            this.modalOverlay.classList.remove('open');
+            this.modalOpen = false;
+            document.body.style.overflow = '';
+            if (this.lastFocusedElement && document.contains(this.lastFocusedElement)) {
+                this.lastFocusedElement.focus();
+            }
+        }
+
+        trapModalFocus(e) {
+            const focusable = Array.from(this.modal.querySelectorAll(
+                'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])'
+            )).filter(el => !el.hasAttribute('disabled'));
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        }
+
+        getRepoRoot() {
+            return (DATA.meta && DATA.meta.repo_root) ? DATA.meta.repo_root.replace(/\/+$/, '') : '';
+        }
+
+        normalizeFileRef(filePath) {
+            const raw = typeof filePath === 'string' ? filePath : ((filePath && (filePath.path || filePath.file)) || '');
+            const root = this.getRepoRoot();
+            if (!raw) return { rawPath: '', labelPath: '', absPath: '', cursorHref: '', vscodeHref: '' };
+
+            const absolute = raw.startsWith('/') ? raw : (root ? root + '/' + raw : raw);
+            let label = raw.replace(/^\.\//, '');
+            if (root && absolute.startsWith(root + '/')) {
+                label = absolute.slice(root.length + 1);
+            } else if (raw.startsWith('/')) {
+                label = raw;
+            }
+
+            const encoded = encodeURI(absolute);
+            return {
+                rawPath: raw,
+                labelPath: label,
+                absPath: absolute,
+                cursorHref: 'cursor://file/' + encoded,
+                vscodeHref: 'vscode://file/' + encoded,
+            };
+        }
+
+        editorLinks(filePath, line) {
+            const ref = this.normalizeFileRef(filePath);
+            const ln = line || 1;
+            return '<span class="diff-editor-links">'
+                + '<a class="editor-link" href="' + ref.vscodeHref + ':' + ln + '">VS Code</a>'
+                + '<a class="editor-link" href="' + ref.cursorHref + ':' + ln + '">Cursor</a>'
+                + '</span>';
+        }
+
+        renderEvidence(evidence) {
+            let html = '';
+
+            /* Diff hunks */
+            if (evidence.diff_hunks && evidence.diff_hunks.length > 0) {
+                html += '<div class="modal-section">';
+                html += '<h3 class="modal-section-title">Diff Hunks</h3>';
+                evidence.diff_hunks.forEach(hunk => {
+                    const fileRef = this.normalizeFileRef(hunk.file || '');
+                    const line = hunk.line || 1;
+                    html += '<div class="diff-block">';
+                    html += '<div class="diff-header">';
+                    html += '<span class="diff-file-path">' + this.escapeHtml(fileRef.labelPath) + '</span>';
+                    html += this.editorLinks(fileRef.absPath, line);
+                    html += '</div>';
+                    html += '<div class="diff-content">';
+                    if (hunk.rendered_html) {
+                        html += hunk.rendered_html;
+                    } else {
+                        html += '<pre>' + this.renderDiffLines(hunk.before, hunk.after) + '</pre>';
+                    }
+                    html += '</div></div>';
+                });
+                html += '</div>';
+            }
+
+            /* Commands */
+            if (evidence.commands && evidence.commands.length > 0) {
+                html += '<div class="modal-section">';
+                html += '<h3 class="modal-section-title">Commands</h3>';
+                evidence.commands.forEach(cmd => {
+                    const status = cmd.status || 'pass';
+                    html += '<div class="command-block">';
+                    html += '<div class="command-header">';
+                    html += '<span class="command-status ' + status + '"></span>';
+                    html += '<code>' + this.escapeHtml(cmd.cmd || cmd.command || '') + '</code>';
+                    html += '</div>';
+                    if (cmd.summary || cmd.output_preview) {
+                        html += '<div class="command-output">' + this.escapeHtml(cmd.summary || cmd.output_preview || '') + '</div>';
+                    }
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
+            /* Decisions */
+            const allSteps = [
+                { id: 'overview', title: 'Overview', decisions: [] },
+                ...(DATA.steps || [])
+            ];
+            const step = allSteps.find(s => s.evidence === evidence) ||
+                          DATA.steps.find(s => s.evidence === evidence);
+            if (step && step.decisions && step.decisions.length > 0) {
+                html += '<div class="modal-section">';
+                html += '<h3 class="modal-section-title">Decisions</h3>';
+                step.decisions.forEach(d => {
+                    html += '<div class="decision-item">';
+                    html += '<strong>' + this.escapeHtml(d.decision || '') + '</strong>';
+                    if (d.rationale) {
+                        html += '<div class="decision-rationale">' + this.escapeHtml(d.rationale) + '</div>';
+                    }
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
+            /* Errors */
+            if (step && step.errors_encountered && step.errors_encountered.length > 0) {
+                html += '<div class="modal-section">';
+                html += '<h3 class="modal-section-title">Errors Encountered</h3>';
+                step.errors_encountered.forEach(err => {
+                    html += '<div class="error-item">';
+                    html += '<strong>' + this.escapeHtml(err.error || '') + '</strong>';
+                    if (err.resolution) {
+                        html += '<div class="error-resolution">' + this.escapeHtml(err.resolution) + '</div>';
+                    }
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
+            /* Screenshots (media) */
+            if (evidence.media && evidence.media.length > 0) {
+                html += '<div class="modal-section">';
+                html += '<h3 class="modal-section-title">Screenshots</h3>';
+                html += '<div class="media-thumbs modal-media-gallery">';
+                html += this.renderMedia(evidence.media);
+                html += '</div></div>';
+            }
+
+            /* Files changed */
+            if (evidence.files_changed && evidence.files_changed.length > 0) {
+                html += '<div class="modal-section">';
+                html += '<h3 class="modal-section-title">Files Changed</h3>';
+                html += '<div style="display:flex;flex-wrap:wrap;gap:0.4rem;">';
+                evidence.files_changed.forEach(f => {
+                    const ref = this.normalizeFileRef(f);
+                    html += '<a class="meta-tag" href="' + ref.cursorHref + '" style="text-decoration:none;color:inherit;cursor:pointer;">' + this.escapeHtml(ref.labelPath) + '</a>';
+                });
+                html += '</div></div>';
+            }
+
+            if (!html) html = '<p style="color:var(--text-secondary)">No evidence data for this step.</p>';
+            return html;
+        }
+
+        renderDiffLines(before, after) {
+            if (!before && !after) return '';
+            let lines = '';
+            if (before) {
+                before.split('\n').forEach(l => {
+                    lines += '<span class="diff-line-del">- ' + this.escapeHtml(l) + '</span>\n';
+                });
+            }
+            if (after) {
+                after.split('\n').forEach(l => {
+                    lines += '<span class="diff-line-add">+ ' + this.escapeHtml(l) + '</span>\n';
+                });
+            }
+            return lines;
+        }
+
+        /* --- Media Galleries --- */
+        initMediaGalleries() {
+            if (!DATA || !DATA.steps) return;
+            DATA.steps.forEach(step => {
+                const evidence = step.evidence || {};
+                const mediaItems = evidence.media || [];
+                if (mediaItems.length === 0) return;
+
+                const container = document.getElementById('media-' + step.id);
+                if (!container) return;
+
+                container.innerHTML = this.renderMedia(mediaItems);
+            });
+        }
+
+        renderMedia(mediaItems) {
+            // Group items by group field
+            const groups = {};
+            const ungrouped = [];
+            mediaItems.forEach(item => {
+                if (item.group) {
+                    if (!groups[item.group]) groups[item.group] = [];
+                    groups[item.group].push(item);
+                } else {
+                    ungrouped.push(item);
+                }
+            });
+
+            let html = '';
+
+            // Render grouped items (before/after comparisons)
+            Object.keys(groups).forEach(groupName => {
+                const items = groups[groupName];
+                const before = items.find(i => i.group_role === 'before');
+                const after = items.find(i => i.group_role === 'after');
+                const others = items.filter(i => i.group_role !== 'before' && i.group_role !== 'after');
+
+                if (before && after) {
+                    // Side-by-side comparison
+                    html += '<div class="media-compare">';
+                    html += '<div class="media-compare-side">';
+                    html += '<div class="media-compare-label">Before</div>';
+                    html += this.renderThumb(before);
+                    html += '</div>';
+                    html += '<div class="media-compare-side">';
+                    html += '<div class="media-compare-label">After</div>';
+                    html += this.renderThumb(after);
+                    html += '</div>';
+                    html += '</div>';
+
+                    // Render any additional grouped media once.
+                    others.forEach(item => { html += this.renderThumb(item); });
+                } else {
+                    // No before/after pair: render all grouped items once.
+                    items.forEach(item => { html += this.renderThumb(item); });
+                }
+            });
+
+            // Render ungrouped items
+            ungrouped.forEach(item => { html += this.renderThumb(item); });
+
+            return html;
+        }
+
+        renderThumb(item) {
+            const src = item.thumbnail_uri || item.data_uri || '';
+            const fullSrc = item.data_uri || '';
+            const caption = item.caption || '';
+            if (!src) return '';
+
+            return '<div class="media-thumb" data-full-src="' + this.escapeHtml(fullSrc) + '" data-caption="' + this.escapeHtml(caption) + '">'
+                + '<img src="' + this.escapeHtml(src) + '" alt="' + this.escapeHtml(caption) + '" loading="lazy">'
+                + (caption ? '<div class="media-caption">' + this.escapeHtml(caption) + '</div>' : '')
+                + '</div>';
+        }
+
+        /* --- Lightbox --- */
+        initLightbox() {
+            this.lightbox = document.getElementById('mediaLightbox');
+            this.lightboxImg = document.getElementById('lightboxImg');
+            this.lightboxCaption = document.getElementById('lightboxCaption');
+            this.lightboxItems = [];
+            this.lightboxIndex = 0;
+
+            if (!this.lightbox) return;
+
+            // Close button
+            document.getElementById('lightboxClose').addEventListener('click', () => this.closeLightbox());
+
+            // Nav buttons
+            document.getElementById('lightboxPrev').addEventListener('click', () => this.lightboxNav(-1));
+            document.getElementById('lightboxNext').addEventListener('click', () => this.lightboxNav(1));
+
+            // Click outside to close
+            this.lightbox.addEventListener('click', (e) => {
+                if (e.target === this.lightbox) this.closeLightbox();
+            });
+
+            // ESC key
+            document.addEventListener('keydown', (e) => {
+                if (!this.lightbox.classList.contains('active')) return;
+                if (e.key === 'Escape') this.closeLightbox();
+                if (e.key === 'ArrowLeft') this.lightboxNav(-1);
+                if (e.key === 'ArrowRight') this.lightboxNav(1);
+            });
+
+            // Delegate click on thumbnails
+            document.addEventListener('click', (e) => {
+                const thumb = e.target.closest('.media-thumb');
+                if (!thumb) return;
+                const fullSrc = thumb.getAttribute('data-full-src');
+                if (!fullSrc) return;
+
+                // Collect all thumbs in the same gallery
+                const gallery = thumb.closest('.media-thumbs') || thumb.closest('.media-compare');
+                if (gallery) {
+                    this.lightboxItems = Array.from(gallery.querySelectorAll('.media-thumb')).map(t => ({
+                        src: t.getAttribute('data-full-src') || '',
+                        caption: t.getAttribute('data-caption') || '',
+                    })).filter(i => i.src);
+                    this.lightboxIndex = this.lightboxItems.findIndex(i => i.src === fullSrc);
+                } else {
+                    this.lightboxItems = [{ src: fullSrc, caption: thumb.getAttribute('data-caption') || '' }];
+                    this.lightboxIndex = 0;
+                }
+
+                this.openLightbox();
+            });
+        }
+
+        openLightbox() {
+            if (this.lightboxItems.length === 0) return;
+            const item = this.lightboxItems[this.lightboxIndex];
+            this.lightboxImg.src = item.src;
+            this.lightboxCaption.textContent = item.caption;
+            this.lightbox.classList.add('active');
+            document.body.style.overflow = 'hidden';
+
+            // Show/hide nav buttons
+            const showNav = this.lightboxItems.length > 1;
+            document.getElementById('lightboxPrev').style.display = showNav ? '' : 'none';
+            document.getElementById('lightboxNext').style.display = showNav ? '' : 'none';
+        }
+
+        closeLightbox() {
+            this.lightbox.classList.remove('active');
+            document.body.style.overflow = '';
+            this.lightboxImg.src = '';
+        }
+
+        lightboxNav(direction) {
+            this.lightboxIndex = (this.lightboxIndex + direction + this.lightboxItems.length) % this.lightboxItems.length;
+            const item = this.lightboxItems[this.lightboxIndex];
+            this.lightboxImg.src = item.src;
+            this.lightboxCaption.textContent = item.caption;
+        }
+
+        escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        new WalkthroughViewer();
+    });
+    </script>
+
+    <!-- Media lightbox -->
+    <div class="media-lightbox" id="mediaLightbox">
+        <button class="media-lightbox-close" id="lightboxClose">&times;</button>
+        <button class="media-lightbox-nav media-lightbox-prev" id="lightboxPrev">&#8249;</button>
+        <button class="media-lightbox-nav media-lightbox-next" id="lightboxNext">&#8250;</button>
+        <img id="lightboxImg" src="" alt="">
+        <div class="media-lightbox-caption" id="lightboxCaption"></div>
+    </div>
+</body>
+</html>
