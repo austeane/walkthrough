@@ -106,9 +106,9 @@ def validate_normalized(path: str) -> ValidationResult:
     else:
         r.ok("All events have required envelope fields")
 
-    # 2. Provider is always "codex" or "claude"
+    # 2. Provider is always "codex", "claude", or "opencode"
     providers = {e.get("provider") for e in events}
-    invalid_providers = providers - {"codex", "claude"}
+    invalid_providers = providers - {"codex", "claude", "opencode"}
     if invalid_providers:
         r.fail(f"Invalid providers: {invalid_providers}")
     else:

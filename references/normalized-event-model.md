@@ -4,7 +4,7 @@ The normalized event model is the common schema that all provider-specific sessi
 
 ## File Format
 
-One JSON object per line (JSONL). Produced by `normalize_codex.py` or `normalize_claude.py`, consumed by `chunk_events.py` and the summarization agents.
+One JSON object per line (JSONL). Produced by `normalize_codex.py`, `normalize_claude.py`, or `normalize_opencode.py`, consumed by `chunk_events.py` and the summarization agents.
 
 ## Event Schema
 
@@ -60,7 +60,7 @@ One JSON object per line (JSONL). Produced by `normalize_codex.py` or `normalize
 | `seq` | integer | yes | Monotonically increasing sequence number across the serialized normalized artifact |
 | `source_line` | integer | yes | Line number in the source JSONL file (1-indexed) |
 | `source_path` | string | yes | Absolute path to the source JSONL file |
-| `provider` | string | yes | `"codex"` or `"claude"` |
+| `provider` | string | yes | `"codex"`, `"claude"`, or `"opencode"` |
 | `session_id` | string | yes | Session UUID from the source |
 | `ts` | string | yes | ISO8601 timestamp |
 | `kind` | string | yes | Event kind (see below) |
@@ -187,7 +187,7 @@ The `turn_index` field uses **1-based indexing** for user turns:
 - `turn_index = 1`: First visible `user_message` and all subsequent events until the next visible user message
 - `turn_index = N`: Nth user message and its associated events
 
-Both providers (Codex and Claude) follow this convention. The `turn_index` increments each time a visible `user_message` event with text content is encountered. Blank user payloads and Claude `user` records containing only `tool_result` content do not increment the turn.
+All providers follow this convention. The `turn_index` increments each time a visible `user_message` event with text content is encountered. Blank user payloads and Claude `user` records containing only `tool_result` content do not increment the turn.
 
 This enables:
 

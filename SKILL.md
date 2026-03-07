@@ -2,7 +2,7 @@
 name: walkthrough
 description: >-
   Generate evidence-backed walkthroughs from agent session histories.
-  Reads Codex CLI and Claude Code JSONL transcripts, processes them with
+  Reads Codex CLI, Claude Code, and OpenCode session histories, processes them with
   recursive summarization, and produces walkthrough.json + walkthrough.html.
   Use when the user wants to understand what an agent built, review agent work,
   walk through recent changes, onboard onto agent-written code, or generate
@@ -57,6 +57,8 @@ python3 scripts/discover_sessions.py \
   --since <from_scope>
 ```
 
+If OpenCode is installed, `discover_sessions.py` also auto-detects its local session database via `opencode db path` and includes matching OpenCode sessions in the result set.
+
 Present the discovered sessions to the user (provider, timestamp, line count, cwd). Let them confirm or deselect sessions. If no sessions found, widen the search (remove --cwd, extend --since).
 
 **Subagent-assisted discovery (recommended when many sessions are found)**:
@@ -78,6 +80,10 @@ python3 scripts/normalize_codex.py --input <out/stripped.jsonl> --output <out/no
 # Claude Code sessions (auto-discovers subagents from original session path)
 python3 scripts/normalize_claude.py --input <out/stripped.jsonl> \
   --auto-subagents --session-root <original_session.jsonl> --output <out/normalized.jsonl>
+
+# OpenCode sessions (export first, then normalize)
+python3 scripts/export_opencode.py --session-id <session-id> --output <out/opencode-session.jsonl>
+python3 scripts/normalize_opencode.py --input <out/opencode-session.jsonl> --output <out/normalized.jsonl>
 ```
 
 If multiple sessions, concatenate normalized outputs into a single file sorted by timestamp.
@@ -429,6 +435,11 @@ Present to the user: file path, step count, key highlights. Ask if they want adj
 - Subagent transcripts may be in `{sessionId}/subagents/`
 - Use Agent tool with `model: "sonnet"` for chunk summarization subagents (or `"haiku"` for fast/cheap drafts)
 
+### OpenCode
+- Sessions are discovered from the local SQLite store (resolved via `opencode db path`)
+- Selected sessions are exported through `opencode export <session-id>` before normalization
+- File changes are reconstructed from per-turn OpenCode diff summaries and patch parts
+
 ## Reference Docs
 
 - `references/codex-session-format.md` — Codex JSONL event types
@@ -446,6 +457,8 @@ All scripts are available as `uv run` commands via entry points (e.g., `uv run w
 | `strip_binary.py` | `walkthrough-strip` | Remove base64/binary | JSONL | Cleaned JSONL |
 | `normalize_codex.py` | `walkthrough-normalize-codex` | Codex → normalized | JSONL | Normalized JSONL |
 | `normalize_claude.py` | `walkthrough-normalize-claude` | Claude → normalized | JSONL + subagents | Normalized JSONL |
+| `export_opencode.py` | `walkthrough-export-opencode` | OpenCode export → JSONL | Session ID | JSONL |
+| `normalize_opencode.py` | `walkthrough-normalize-opencode` | OpenCode → normalized | JSONL | Normalized JSONL |
 | `project_events.py` | `walkthrough-project` | Drop noise, compress tool_results | Normalized JSONL | Projected JSONL |
 | `extract_session_cards.py` | `walkthrough-cards` | Per-session summary card | Normalized JSONL | Card JSON |
 | `chunk_events.py` | `walkthrough-chunk` | Split for LLM context | Projected JSONL | Chunks + manifest |

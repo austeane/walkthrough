@@ -13,6 +13,36 @@ def _write_jsonl(path: Path, events: list[dict]) -> None:
 
 
 class TestValidateNormalized:
+    def test_accepts_opencode_provider(self, tmp_path: Path):
+        path = tmp_path / "normalized.jsonl"
+        _write_jsonl(
+            path,
+            [
+                {
+                    "seq": 1,
+                    "kind": "meta",
+                    "turn_index": 0,
+                    "ts": "2026-01-01T00:00:00Z",
+                    "provider": "opencode",
+                    "session_id": "sess-001",
+                    "source_path": "/tmp/opencode.jsonl",
+                },
+                {
+                    "seq": 2,
+                    "kind": "user_message",
+                    "turn_index": 1,
+                    "ts": "2026-01-01T00:00:01Z",
+                    "provider": "opencode",
+                    "session_id": "sess-001",
+                    "source_path": "/tmp/opencode.jsonl",
+                    "text": "hello",
+                },
+            ],
+        )
+
+        result = validate_normalized(str(path))
+        assert result.failed == 0
+
     def test_accepts_subagent_streams_with_independent_turn_sequences(self, tmp_path: Path):
         path = tmp_path / "normalized.jsonl"
         _write_jsonl(

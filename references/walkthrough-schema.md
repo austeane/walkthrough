@@ -43,7 +43,7 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
 |-------|------|-------------|
 | `generated_at` | string | ISO8601 generation timestamp |
 | `sessions` | array | Source sessions used |
-| `sessions[].provider` | string | `"codex"` or `"claude"` |
+| `sessions[].provider` | string | `"codex"`, `"claude"`, or `"opencode"` |
 | `sessions[].path` | string | Path to source JSONL |
 | `sessions[].timestamp` | string | Session start time |
 | `repo` | string | Repository identifier (if available) |

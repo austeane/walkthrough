@@ -34,12 +34,19 @@ def strip_strings_media_aware(obj, source_path: str, line_no: int, max_field_byt
     An image content block is a dict with "type": "image" and a "source" key
     whose "media_type" starts with "image/". Such dicts are returned as-is,
     keeping the base64 "data" field intact for downstream screenshot extraction.
+
+    OpenCode exports image attachments as {"type": "file", "mime": "image/...",
+    "url": "data:image/...;base64,..."}. Those dicts are also preserved.
     """
     if isinstance(obj, dict):
         # Preserve image content blocks wholesale
         if (obj.get("type") == "image"
                 and isinstance(obj.get("source"), dict)
                 and str(obj["source"].get("media_type", "")).startswith("image/")):
+            return obj
+        if (obj.get("type") == "file"
+                and str(obj.get("mime", "")).startswith("image/")
+                and str(obj.get("url", "")).startswith("data:image/")):
             return obj
         return {k: strip_strings_media_aware(v, source_path, line_no, max_field_bytes)
                 for k, v in obj.items()}

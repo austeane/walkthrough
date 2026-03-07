@@ -2,7 +2,7 @@
 """Batch pipeline: strip, normalize, project, concatenate, and chunk sessions.
 
 Automates the strip → normalize → project → concat → chunk workflow for projects
-with many sessions (e.g. 100+ Codex sessions). No LLM calls — purely deterministic.
+with many sessions (e.g. 100+ Codex/OpenCode sessions). No LLM calls — purely deterministic.
 
 Pipeline flow:
     strip → normalize → PROJECT → concat projected → chunk
@@ -55,11 +55,35 @@ def process_session(
     idx: int,
     python_cmd: list[str],
     preserve_screenshots: bool = False,
+    opencode_bin: str = "opencode",
 ) -> str | None:
     """Strip and normalize a single session. Returns path to normalized JSONL or None."""
     provider = session["provider"]
     session_path = session["path"]
     tag = f"session-{idx:04d}-{provider}"
+
+    raw_input_path = session_path
+    if provider == "opencode" and not os.path.isfile(session_path):
+        export_path = os.path.join(batch_dir, f"{tag}-export.jsonl")
+        session_id = (
+            session.get("session_id")
+            or session.get("id")
+            or (session_path.rsplit("/", 1)[-1] if str(session_path).startswith("opencode://session/") else "")
+        )
+        if not session_id:
+            print(f"SKIP: Missing OpenCode session ID for {session_path}", file=sys.stderr)
+            return None
+
+        result = run(
+            [*python_cmd, str(SCRIPT_DIR / "export_opencode.py"),
+             "--session-id", session_id,
+             "--opencode-bin", opencode_bin,
+             "--output", export_path],
+            f"export {tag}",
+        )
+        if result.returncode != 0:
+            return None
+        raw_input_path = export_path
 
     stripped_path = os.path.join(batch_dir, f"{tag}-stripped.jsonl")
     normalized_path = os.path.join(batch_dir, f"{tag}-normalized.jsonl")
@@ -67,7 +91,7 @@ def process_session(
     # Strip binary
     strip_cmd = [
         *python_cmd, str(SCRIPT_DIR / "strip_binary.py"),
-        "--input", session_path, "--output", stripped_path,
+        "--input", raw_input_path, "--output", stripped_path,
     ]
     if preserve_screenshots:
         strip_cmd.append("--preserve-screenshots")
@@ -88,6 +112,12 @@ def process_session(
              "--input", stripped_path,
              "--auto-subagents", "--session-root", session_path,
              "--output", normalized_path],
+            f"normalize {tag}",
+        )
+    elif provider == "opencode":
+        result = run(
+            [*python_cmd, str(SCRIPT_DIR / "normalize_opencode.py"),
+             "--input", stripped_path, "--output", normalized_path],
             f"normalize {tag}",
         )
     else:
@@ -197,6 +227,11 @@ def main():
         "--preserve-screenshots", action="store_true",
         help="Pass --preserve-screenshots to strip_binary.py",
     )
+    parser.add_argument(
+        "--opencode-bin",
+        default=os.environ.get("OPENCODE_BIN", "opencode"),
+        help="OpenCode CLI binary used for session export (default: opencode)",
+    )
     args = parser.parse_args()
 
     with open(args.sessions) as f:
@@ -233,6 +268,7 @@ def main():
             i,
             python_cmd,
             preserve_screenshots=args.preserve_screenshots,
+            opencode_bin=args.opencode_bin,
         )
         if not normalized_path:
             failed += 1
@@ -309,9 +345,14 @@ def main():
     # Summary
     codex_count = sum(1 for s in sessions if s["provider"] == "codex")
     claude_count = sum(1 for s in sessions if s["provider"] == "claude")
+    opencode_count = sum(1 for s in sessions if s["provider"] == "opencode")
     norm_bytes = os.path.getsize(concat_path) if os.path.isfile(concat_path) else 0
     print(f"\nBatch pipeline complete:", file=sys.stderr)
-    print(f"  Sessions: {len(sessions)} ({codex_count} Codex, {claude_count} Claude)", file=sys.stderr)
+    print(
+        f"  Sessions: {len(sessions)} "
+        f"({codex_count} Codex, {claude_count} Claude, {opencode_count} OpenCode)",
+        file=sys.stderr,
+    )
     if failed:
         print(f"  Failed:   {failed}", file=sys.stderr)
     print(f"  Events:   {event_count:,} normalized", file=sys.stderr)
