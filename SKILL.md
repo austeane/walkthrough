@@ -45,6 +45,8 @@ Store the audience choice — it affects narrative tone in step 7.
 Store the choice as `media_mode` (`none`, `extract`, `capture`, or `both`). It controls whether `--preserve-screenshots` is passed to strip_binary, whether `capture_screenshots.py` runs, and whether the HTML gallery renders.
 For Path B (`capture`/`both`), capture files are written to `out/captures/manifest.json`; inject those captures into `out/walkthrough.json` before rendering (step 7c).
 
+> **Gotcha — `extract` mode currently loses Claude Code browser screenshots.** `strip_binary --preserve-screenshots` keeps the base64 image blocks in `stripped.jsonl` (they live at `message.content[N].source.data` in browser-tool `tool_result` records), but `normalize_claude.py` emits a `screenshot` event *without* carrying the base64 forward, so by `normalized.jsonl` the `data_uri` is empty and there is nothing for the renderer to attach. Until this is fixed, `media_mode=extract` on Claude sessions yields a text-only walkthrough. (TODO: `normalize_claude.py` should copy the image `source.data`/media-type into the `screenshot` event — e.g. as `data_uri` — so `render_html.py` can bridge it into `evidence.media`.) Also note that browser-verification sessions often contain *error/phantom* frames (failed captures, stale-tab errors); filter by relevance before attaching. If screenshots matter and this gap blocks you, say so and fall back to text-first rather than silently dropping them.
+
 ### 2. Discovery
 
 Run the discovery script to find session files:
@@ -60,6 +62,8 @@ python3 scripts/discover_sessions.py \
 If OpenCode is installed, `discover_sessions.py` also auto-detects its local session database via `opencode db path` and includes matching OpenCode sessions in the result set.
 
 Present the discovered sessions to the user (provider, timestamp, line count, cwd). Let them confirm or deselect sessions. If no sessions found, widen the search (remove --cwd, extend --since).
+
+> **Gotcha — planning vs. implementation often live in different sessions.** "This session" is ambiguous: a feature is frequently *planned* in one session (research, plan file, scoping dialog) and *implemented* in another (the actual edits, tests, verification). Before committing to a scope, peek at each candidate's session card (`extract_session_cards.py`) — `files_touched` and `commands_run` tell you which session holds the real changes. The session with the most `file_change`/Edit/Write activity is usually the one the user means by "the changes," even if they pointed you at the planning session.
 
 **Subagent-assisted discovery (recommended when many sessions are found)**:
 - Spawn 2-4 subagents to score relevance in parallel from discovery metadata (timestamp, cwd, line count, filename/session id patterns, and optional user keywords).
@@ -179,6 +183,8 @@ python3 scripts/validate_pipeline.py \
 
 Checks include: turn_index conventions (meta=0, first visible user=1), per-stream validation for subagents, session contiguity, tool_use/tool_result pairing integrity, no data_b64 in projected output, chunk SHA256 and byte_size correctness, and seq monotonicity.
 
+> **Gotcha — `turn_index regression` on compacted/continued sessions.** A session that hit `/compact` (or was resumed from a summary) restarts its turn numbering partway through, which trips the `turn_index regression` check as a *false* failure. The data is fine. Treat this specific failure as a warning when you know the session was compacted, and don't block the pipeline on it. (TODO for the validator: in `validate_pipeline.py`, the `turn_index regression` issue in `_validate_stream_file` should be downgradeable to a warning via an `--allow-turn-regression` flag, since compaction legitimately resets turn numbers.)
+
 ### 5. Chunk Summarization
 
 For each chunk, spawn a Sonnet subagent to produce a structured summary. The subagent identifies the **narrative arc** of its chunk: what was the agent trying to do, what went wrong, what did it learn, what did it build. Use `model: "haiku"` as a fast/cheap fallback for draft walkthroughs or very large sessions (20+ chunks).
@@ -297,15 +303,21 @@ Read the walkthrough schema: `references/walkthrough-schema.md`
 **Assembly rules**:
 - 8-20 steps is typical. Fewer for simple features, more for complex multi-session work.
 - Group by concept or subsystem, not chronology, unless chronology IS the story.
+- Every step needs a `takeaway`: one declarative outcome sentence stating what changed and its net effect (distinct from the `title` topic and the `intent` why). This is the "broad shape" a reader scans first; the rendered page leads with it. **Skim test**: read the `takeaway` lines alone, top to bottom — they should form a complete, coherent summary of the whole session. If they don't, re-edit the steps until they do.
 - Every step needs at least one grounded claim with source_refs.
 - The overview.goal should be one sentence a stranger could understand.
 - Include a Mermaid/source diagram in overview if the work involved multiple interacting components.
 - If the diagram is too tiny to read (for example, only a few nodes in one line), remove it or expand it before rendering.
-- Decisions and errors_encountered are high-value — surface them prominently.
+- Decisions and errors_encountered are high-value reasoning — the renderer shows them in the always-visible narrative band (not inside the collapsed evidence), so write them as standalone insights a scanning reader should catch.
+- The rendered step is an altitude ladder: `title` → `takeaway` (gist) → `intent` (why) → claims + decisions + gotchas (visible narrative) → `evidence` diffs/commands/screenshots (collapsed proof, expand on demand). Put each fact at the altitude that matches how much a reader needs it.
 
 For large sessions (15+ draft steps), use Opus (`model: "opus"`) for editorial assembly — it handles complex compression (e.g. 276→15 steps) significantly better than Sonnet.
 
 Write the result to `out/walkthrough.json`. Validate it has all required fields per the schema. Include `meta.repo_root` set to the project's absolute path so cursor:// and vscode:// editor links work correctly in the rendered HTML.
+
+> **Gotcha — `out/` is a single hardcoded namespace.** The pipeline reads and writes `out/walkthrough.json`, `out/chunks/`, `out/summaries/`, etc. with no per-walkthrough subfolder. Running a *second* walkthrough (e.g. a meta walkthrough, or a different scope in the same repo) silently clobbers the first — and in this repo `out/walkthrough.json` is also the test fixture. When producing an additional walkthrough, isolate it in a subdirectory (e.g. `out/<name>/...` for every stage and `--output out/<name>/walkthrough.html`) so you don't overwrite an existing one or the test sample.
+
+> **Gotcha — `merge_summaries.py` coverage report can under-count.** During the meta run, `merge_summaries --dry-run` reported `0/3` summary coverage even though all three `<chunk_id>.<sha256>.json` files were present and their shas matched the manifest (the `load_summaries` resolver at the top of the script finds them correctly). If the draft step insists summaries are missing while the files are demonstrably on disk, don't trust the count: verify directly (`for c in manifest.chunks: (summaries_dir / f"{c.chunk_id}.{c.sha256}.json").exists()`), and if they're all there, proceed — the editorial assembly reads the summary JSON files itself, so you can hand-author `walkthrough.json` from them and skip the broken draft. (TODO: reconcile the dry-run coverage counter with `load_summaries`.)
 
 ### 7b. Media Capture (Path B only)
 
@@ -419,6 +431,20 @@ If Chrome DevTools MCP is available, also verify rendered thumbnail counts match
 ```
 
 Present to the user: file path, step count, key highlights. Ask if they want adjustments.
+
+## Operational Notes
+
+### Surviving a flaky tool-result channel
+If tool results start returning empty for long stretches and then flush in a burst (an environment/transport stall, not an RTK or script bug — it hits Read and ToolSearch too, not just Bash), the pipeline is still runnable; minimize round-trips and make every step recoverable:
+- **Bundle stages into one command.** Run `strip → normalize → project → cards → chunk → validate` as a single `{ ...; } 2>&1 | tee out/<ns>/pipeline.log` so one round-trip does the whole pre-summary pipeline, and the log survives a stalled result.
+- **Write results to files, not stdout.** `python … > out/<ns>/foo.txt 2>&1` then Read the file; a corrupted result channel mangles inline stdout but the on-disk file is intact.
+- **Prefer the disk as source of truth.** After any step, re-derive state by listing/reading output files rather than trusting the (possibly empty) command result.
+- **Don't bundle file edits behind a command that can fail.** A Bash that exits non-zero cancels every other tool call sent in the same batch; issue `Edit`/`Write` calls on their own so a failing probe can't discard them.
+- **Use background commands + `ScheduleWakeup`** for long stages so a stall doesn't strand the turn; the harness re-invokes on completion.
+- **Don't trust browser/tool output you can't tie to a real handle.** A stalled channel can return plausible-looking garbage; verify against a freshly created tab id / a re-read file before acting on it. (This skill's own meta walkthrough recorded a fabricated browser pass caused by exactly this.)
+
+### Meta / recursive walkthroughs
+You can run this skill on the very sessions where you changed this skill (dogfooding). Output to an isolated namespace (see the `out/` gotcha above). A single small session (≈1 chunk) can be summarized inline instead of via subagent fan-out; multi-chunk sessions still fan out to parallel Sonnet subagents as usual.
 
 ## Provider-Specific Notes
 

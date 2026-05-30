@@ -18,6 +18,7 @@ from render_html import (
     prepare_data,
     render,
     resolve_media,
+    summarize_evidence,
 )
 
 
@@ -476,6 +477,91 @@ class TestRenderHtml:
 
         assert ">1 cmd · 1 shot<" in html
         assert "2 shots" not in html
+
+
+class TestAltitudeLadder:
+    """The step layout: takeaway lead -> visible narrative -> collapsed proof."""
+
+    def _render(self, tmp_path: Path, step: dict) -> str:
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {"goal": "Walkthrough"},
+            "steps": [step],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        return output_path.read_text(encoding="utf-8")
+
+    def test_renders_takeaway_lead(self, tmp_path: Path):
+        html = self._render(tmp_path, {
+            "id": "step-1",
+            "title": "Title",
+            "takeaway": "Auth now issues JWTs and sessions are gone.",
+            "claims": [{"text": "c", "confidence": "grounded"}],
+        })
+        assert 'class="step-takeaway' in html
+        assert "Auth now issues JWTs and sessions are gone." in html
+
+    def test_evidence_is_collapsed_by_default(self, tmp_path: Path):
+        html = self._render(tmp_path, {
+            "id": "step-1",
+            "title": "Title",
+            "evidence": {"commands": [{"cmd": "pytest", "status": "pass"}]},
+        })
+        assert '<details class="evidence reveal">' in html
+        assert '<details class="evidence reveal" open>' not in html
+
+    def test_decisions_and_gotchas_render_in_visible_band_not_evidence(self, tmp_path: Path):
+        html = self._render(tmp_path, {
+            "id": "step-1",
+            "title": "Title",
+            "evidence": {"commands": [{"cmd": "pytest", "status": "pass"}]},
+            "decisions": [{"decision": "Use RS256", "rationale": "public-key verify"}],
+            "errors_encountered": [{"error": "bad signature", "resolution": "unified keys"}],
+        })
+        # The callouts live in the always-visible band ...
+        assert 'class="callouts' in html
+        assert "Use RS256" in html
+        assert "bad signature" in html
+        # ... and no longer inside the collapsed evidence body.
+        assert 'evidence__group-label">Decisions' not in html
+        assert 'evidence__group-label">Gotchas' not in html
+
+    def test_no_collapsible_when_evidence_has_only_files(self, tmp_path: Path):
+        html = self._render(tmp_path, {
+            "id": "step-1",
+            "title": "Title",
+            "evidence": {"files_changed": ["src/app.py"]},
+        })
+        # Files alone surface as chips; an empty evidence collapsible is not rendered.
+        assert '<details class="evidence' not in html
+        assert "src/app.py" in html
+
+
+class TestSummarizeEvidenceScent:
+    def test_all_pass_format_is_stable(self):
+        assert summarize_evidence(
+            {"commands": [{"cmd": "x", "status": "pass"}], "media": [{}]}
+        ) == "1 cmd · 1 shot"
+
+    def test_failed_command_is_flagged(self):
+        assert summarize_evidence(
+            {"commands": [{"cmd": "x", "status": "fail"}, {"cmd": "y", "status": "pass"}]}
+        ) == "2 cmds · 1 failed"
+
+    def test_full_strip_order(self):
+        assert summarize_evidence({
+            "files_changed": ["a", "b"],
+            "diff_hunks": [{}],
+            "commands": [{"cmd": "x", "status": "pass"}],
+            "media": [{}],
+        }) == "2 files · 1 diff · 1 cmd · 1 shot"
+
+    def test_empty_returns_placeholder(self):
+        assert summarize_evidence({}) == "View Evidence"
+        assert summarize_evidence(None) == "View Evidence"
 
 
 class TestMermaidRendering:

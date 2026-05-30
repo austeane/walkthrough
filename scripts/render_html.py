@@ -253,24 +253,34 @@ def render_mermaid_svg(diagram_mermaid: str) -> str:
 
 
 def summarize_evidence(evidence: dict) -> str:
+    """Build the one-line scent label for the collapsed evidence block.
+
+    The label is the reader's information scent: it says what is inside before
+    they open it. A failing command is surfaced here (``N failed``) so a reader
+    scanning sees trouble without expanding. The all-pass case stays a plain
+    ``files · diffs · cmds · shots`` strip.
+    """
+    if not isinstance(evidence, dict):
+        return "View Evidence"
     counts = []
-    mapping = (
-        ("files_changed", "file", "files"),
-        ("diff_hunks", "diff", "diffs"),
-        ("commands", "cmd", "cmds"),
-    )
-    for key, singular, plural in mapping:
-        items = evidence.get(key, []) if isinstance(evidence, dict) else []
-        if isinstance(items, list) and items:
-            count = len(items)
-            label = singular if count == 1 else plural
-            counts.append(f"{count} {label}")
-    media_items = []
-    if isinstance(evidence, dict):
-        media_items = evidence.get("media") or evidence.get("screenshots") or []
+    files = evidence.get("files_changed") or []
+    if isinstance(files, list) and files:
+        counts.append(f"{len(files)} {'file' if len(files) == 1 else 'files'}")
+    hunks = evidence.get("diff_hunks") or []
+    if isinstance(hunks, list) and hunks:
+        counts.append(f"{len(hunks)} {'diff' if len(hunks) == 1 else 'diffs'}")
+    commands = evidence.get("commands") or []
+    if isinstance(commands, list) and commands:
+        counts.append(f"{len(commands)} {'cmd' if len(commands) == 1 else 'cmds'}")
+        failed = sum(
+            1 for c in commands
+            if isinstance(c, dict) and str(c.get("status", "")).lower() == "fail"
+        )
+        if failed:
+            counts.append(f"{failed} failed")
+    media_items = evidence.get("media") or evidence.get("screenshots") or []
     if isinstance(media_items, list) and media_items:
-        count = len(media_items)
-        counts.append(f"{count} {'shot' if count == 1 else 'shots'}")
+        counts.append(f"{len(media_items)} {'shot' if len(media_items) == 1 else 'shots'}")
     return " · ".join(counts) if counts else "View Evidence"
 
 

@@ -86,6 +86,7 @@ Each step represents a logical unit of work in the walkthrough. Steps are ordere
 {
   "id": "step-1",
   "title": "Replace session store with JWT infrastructure",
+  "takeaway": "Auth now signs and verifies JWTs; the Redis session store is gone.",
   "intent": "The agent needed to remove the Redis-backed session dependency and establish JWT signing/verification as the new auth primitive.",
   "claims": [ ... ],
   "evidence": { ... },
@@ -97,12 +98,32 @@ Each step represents a logical unit of work in the walkthrough. Steps are ordere
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string | Unique step identifier (`step-1`, `step-2`, ...) |
-| `title` | string | Short, descriptive title |
+| `title` | string | Short, descriptive title (the topic) |
+| `takeaway` | string | One declarative outcome sentence: the broad shape of what happened. The line a reader scans to decide whether this step matters. Distinct from `title` (topic) and `intent` (why). |
 | `intent` | string | What the agent was trying to accomplish and why |
 | `claims` | array | Individual narrative statements with confidence levels |
 | `evidence` | object | Grounded artifacts from the session logs |
 | `decisions` | array | Key decisions made during this step |
 | `errors_encountered` | array | Problems hit and how they were resolved |
+
+### The altitude ladder
+
+Each step is rendered as a descent through altitudes, so a reader can stop at
+whatever depth they need:
+
+1. **`title`** — the topic (also the TOC and jump-grid label).
+2. **`takeaway`** — the gist, as a prominent lead. **Skim test:** the sequence
+   of `takeaway` lines read alone should form a complete summary of the whole
+   session. If it does not, the steps need re-editing.
+3. **`intent`** — the why / context.
+4. **Narrative** — `claims` (with confidence), plus `decisions` and
+   `errors_encountered`. These render in the always-visible band: decisions and
+   gotchas are reasoning, not raw artifacts, so they are never buried.
+5. **Proof** — `evidence` (`diff_hunks`, `commands`, `media`) renders inside a
+   collapsed `<details>` with a one-line scent label, expandable on demand.
+
+`takeaway` is optional in the renderer (older walkthroughs omit it), but the
+editorial step should always write one.
 
 ### Claims
 
