@@ -18,6 +18,7 @@ out/
 # Project-local agent config / skills (e.g. impeccable copied in during a session)
 .claude/
 .codex/
+.agents/
 
 # pytest
 .pytest_cache/

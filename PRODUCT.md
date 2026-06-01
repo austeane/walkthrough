@@ -18,6 +18,11 @@ the transcript. The output is a single, self-contained, offline HTML document
 (dual-view: a scrollable Reading view and a 1920x1080 Present/deck view), also
 designed to export cleanly to PDF via the browser print path.
 
+The reader chooses their altitude on a second axis too: an **End State** view
+(just where the work landed) or a **Journey** view (how we got there). The same
+evidence base serves both — the end state is the destination; the journey is the
+path with its pivots and dead-ends. Both must pass the skim test on their own.
+
 The prime directive: the walkthrough teaches the developer their own codebase.
 It is compression and editorial judgment over chronology. 100 agent actions
 across 5 sessions might become 8 to 20 steps.

@@ -358,6 +358,127 @@ class TestPrepareData:
         )
         assert prepared["overview"]["_diagram_svg"] == "<svg class='diagram'></svg>"
 
+    def test_prepare_data_builds_overview_reasoning_indices(self):
+        prepared = prepare_data(
+            {
+                "meta": {"repo_root": "/tmp/project"},
+                "overview": {},
+                "steps": [
+                    {
+                        "id": "step-1",
+                        "title": "Auth Flow",
+                        "decisions": [
+                            {"decision": "Keep auth in the wizard", "rationale": "Avoids redirect churn."}
+                        ],
+                        "errors_encountered": [
+                            {"error": "Hydration reset user input", "resolution": "Guarded reset by user key."}
+                        ],
+                    }
+                ],
+            }
+        )
+
+        assert prepared["overview"]["_decision_index"] == [
+            {
+                "kind": "decision",
+                "step_id": "step-1",
+                "step_number": 1,
+                "step_title": "Auth Flow",
+                "item_number": 1,
+                "target_id": "step-1-decision-1",
+                "text": "Keep auth in the wizard",
+                "detail": "Avoids redirect churn.",
+                "view": "both",
+            }
+        ]
+        assert prepared["overview"]["_gotcha_index"][0]["text"] == "Hydration reset user input"
+        assert prepared["overview"]["_gotcha_index"][0]["target_id"] == "step-1-gotcha-1"
+        # Gotchas default to the "journey" view (a problem hit-and-fixed is the path).
+        assert prepared["overview"]["_gotcha_index"][0]["view"] == "journey"
+        assert prepared["overview"]["_decision_overflow"] == []
+        assert prepared["overview"]["_gotcha_overflow"] == []
+        assert prepared["overview"]["_decision_total"] == 1
+        assert prepared["overview"]["_gotcha_total"] == 1
+
+    def test_prepare_data_round_robins_overview_indices_across_steps(self):
+        prepared = prepare_data(
+            {
+                "meta": {"repo_root": "/tmp/project"},
+                "overview": {},
+                "steps": [
+                    {
+                        "id": "step-1",
+                        "title": "Step 1",
+                        "decisions": [
+                            {"decision": "Step 1 decision 1"},
+                            {"decision": "Step 1 decision 2"},
+                        ],
+                    },
+                    {
+                        "id": "step-2",
+                        "title": "Step 2",
+                        "decisions": [{"decision": "Step 2 decision 1"}],
+                    },
+                ],
+            }
+        )
+
+        assert [item["text"] for item in prepared["overview"]["_decision_index"]] == [
+            "Step 1 decision 1",
+            "Step 2 decision 1",
+            "Step 1 decision 2",
+        ]
+        assert prepared["overview"]["_decision_total"] == 3
+
+    def test_prepare_data_derives_overview_teaser_when_takeaway_is_missing(self):
+        prepared = prepare_data(
+            {
+                "meta": {"repo_root": "/tmp/project"},
+                "overview": {},
+                "steps": [
+                    {
+                        "id": "step-1",
+                        "title": "Intent fallback",
+                        "intent": "Built the ingestion path and verified it with load tests.",
+                    },
+                    {
+                        "id": "step-2",
+                        "title": "Claim fallback",
+                        "claims": [{"text": "The worker now retries transient queue failures."}],
+                    },
+                ],
+            }
+        )
+
+        assert prepared["steps"][0]["_overview_teaser"] == (
+            "Built the ingestion path and verified it with load tests."
+        )
+        assert prepared["steps"][1]["_overview_teaser"] == (
+            "The worker now retries transient queue failures."
+        )
+
+    def test_prepare_data_normalizes_string_decisions_and_gotchas(self):
+        prepared = prepare_data(
+            {
+                "meta": {"repo_root": "/tmp/project"},
+                "overview": {},
+                "steps": [
+                    {
+                        "id": "step-1",
+                        "title": "Legacy reasoning",
+                        "decisions": ["Keep the queue worker separate."],
+                        "errors_encountered": ["Queue credentials were missing."],
+                    }
+                ],
+            }
+        )
+
+        step = prepared["steps"][0]
+        assert step["decisions"] == [{"decision": "Keep the queue worker separate."}]
+        assert step["errors_encountered"] == [{"error": "Queue credentials were missing."}]
+        assert prepared["overview"]["_decision_index"][0]["text"] == "Keep the queue worker separate."
+        assert prepared["overview"]["_gotcha_index"][0]["text"] == "Queue credentials were missing."
+
     def test_drops_untrusted_diff_html_and_generates_rendered_html(self):
         prepared = prepare_data(
             {
@@ -452,6 +573,244 @@ class TestRenderHtml:
         assert '<svg class="mermaid-svg"' in html
         assert '<pre>flowchart LR' not in html
 
+    def test_render_includes_overview_reasoning_map(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {"goal": "Walkthrough"},
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Auth Flow",
+                    "takeaway": "Auth now happens in-place.",
+                    "claims": [],
+                    "decisions": [{"decision": "Keep auth in the wizard", "rationale": "Avoid redirect churn."}],
+                    "errors_encountered": [{"error": "Hydration reset user input", "resolution": "Guarded reset."}],
+                }
+            ],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert "Decision map" in html
+        assert "Gotcha map" in html
+        assert "Keep auth in the wizard" in html
+        assert 'href="#step-1-decision-1"' in html
+        assert 'href="#step-1-gotcha-1"' in html
+        assert 'id="step-1-decision-1"' in html
+        assert 'id="step-1-gotcha-1"' in html
+
+    def test_render_labels_capped_reasoning_map_counts(self, tmp_path: Path):
+        steps = []
+        for i in range(11):
+            steps.append(
+                {
+                    "id": f"step-{i + 1}",
+                    "title": f"Step {i + 1}",
+                    "claims": [],
+                    "decisions": [{"decision": f"Decision {i + 1}"}],
+                }
+            )
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {"goal": "Walkthrough"},
+            "steps": steps,
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert '<span class="reasoning-map__count">10 of 11</span>' in html
+        assert "Show 1 more decisions" in html
+
+    def test_render_includes_collapsed_overflow_for_capped_gotchas(self, tmp_path: Path):
+        steps = []
+        for i in range(11):
+            steps.append(
+                {
+                    "id": f"step-{i + 1}",
+                    "title": f"Step {i + 1}",
+                    "claims": [],
+                    "errors_encountered": [{"error": f"Gotcha {i + 1}"}],
+                }
+            )
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {"goal": "Walkthrough"},
+            "steps": steps,
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert '<span class="reasoning-map__count">10 of 11</span>' in html
+        assert "Show 1 more gotchas" in html
+
+    def test_render_places_step_jump_grid_before_reasoning_map(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {"goal": "Walkthrough"},
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Auth Flow",
+                    "takeaway": "Auth now happens in-place.",
+                    "claims": [],
+                    "decisions": [{"decision": "Keep auth in the wizard"}],
+                }
+            ],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert html.index('class="jump-grid reveal"') < html.index('class="reasoning-map reveal"')
+
+    def test_render_places_step_jump_grid_before_overview_key_files(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {"goal": "Walkthrough", "key_files": ["src/app.ts"]},
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Auth Flow",
+                    "takeaway": "Auth now happens in-place.",
+                    "claims": [],
+                }
+            ],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert html.index('class="jump-grid reveal"') < html.index('class="overview-files reveal"')
+
+    def test_render_jump_cards_show_decision_and_gotcha_scent(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {"goal": "Walkthrough"},
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Auth Flow",
+                    "takeaway": "Auth now happens in-place.",
+                    "claims": [],
+                    "decisions": [{"decision": "Keep auth in wizard"}, {"decision": "Store state"}],
+                    "errors_encountered": [{"error": "Hydration reset"}],
+                }
+            ],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert "jump-card__badge jump-card__badge--decision" in html
+        assert "2 decisions" in html
+        assert "jump-card__badge jump-card__badge--gotcha" in html
+        assert "1 gotcha" in html
+
+    def test_render_jump_cards_show_intent_when_takeaway_is_missing(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {"goal": "Walkthrough"},
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Auth Flow",
+                    "intent": "Replaced redirects with in-place auth so the wizard keeps state.",
+                    "claims": [],
+                }
+            ],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert "Replaced redirects with in-place auth so the wizard keeps state." in html
+        assert "jump-card__d" in html
+
+    def test_render_string_decisions_and_gotchas_in_map_and_callouts(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {"goal": "Walkthrough"},
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Legacy reasoning",
+                    "claims": [],
+                    "decisions": ["Keep the queue worker separate."],
+                    "errors_encountered": ["Queue credentials were missing."],
+                }
+            ],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert "Keep the queue worker separate." in html
+        assert "Queue credentials were missing." in html
+        assert 'href="#step-1-decision-1"' in html
+        assert 'id="step-1-gotcha-1"' in html
+
+    def test_template_highlights_targeted_callouts(self):
+        template = Path(DEFAULT_TEMPLATE).read_text(encoding="utf-8")
+        assert ".callout:target" in template
+        assert ".callout--gotcha:target" in template
+
+    def test_render_prefers_diagram_image_over_mermaid(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        def fail_if_called(_: str) -> str:
+            raise AssertionError("Mermaid should not render when diagram_image is present")
+
+        monkeypatch.setattr(render_html, "render_mermaid_svg", fail_if_called)
+        (tmp_path / "overview.png").write_bytes(_TINY_PNG)
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {
+                "goal": "Walkthrough",
+                "diagram_image": "overview.png",
+                "diagram_mermaid": "flowchart LR\nA-->B",
+            },
+            "steps": [],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert '<img class="wt-diagram-img wt-diagram-dark"' in html
+        assert '<img class="wt-diagram-img wt-diagram-light"' in html
+        assert '<pre>flowchart LR' not in html
+        assert "mermaid-svg" not in html
+        # The image appears in the server-rendered tags only; DATA omits the
+        # heavy embedded payload so the HTML does not double in size.
+        assert html.count("data:image/png;base64,") == 2
+
     def test_render_evidence_summary_does_not_double_count_bridged_screenshots(self, tmp_path: Path):
         walkthrough = {
             "meta": {"repo_root": "/tmp/project"},
@@ -477,6 +836,129 @@ class TestRenderHtml:
 
         assert ">1 cmd · 1 shot<" in html
         assert "2 shots" not in html
+
+
+class TestViewModes:
+    """End State vs Journey: the toggle, the data-view-tag stamping, defaults."""
+
+    def _render(self, tmp_path: Path, walkthrough: dict) -> str:
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        return output_path.read_text(encoding="utf-8")
+
+    def test_render_includes_view_toggle_defaulting_to_end_state(self, tmp_path: Path):
+        html = self._render(
+            tmp_path,
+            {"meta": {"repo_root": "/tmp/p"}, "overview": {"goal": "G"}, "steps": []},
+        )
+        assert 'data-view="endstate"' in html
+        assert 'id="viewEndstate"' in html and 'id="viewJourney"' in html
+        # The filter rules and the JS controller must be present.
+        assert 'html[data-view="endstate"] [data-view-tag="journey"]' in html
+        assert "walkthrough-view" in html  # localStorage key persists the choice
+
+    def test_steps_claims_and_callouts_are_tagged_by_view(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/p"},
+            "overview": {"goal": "G"},
+            "steps": [
+                {"id": "step-1", "title": "Origin", "mode": "journey", "claims": []},
+                {"id": "step-2", "title": "Result", "mode": "end-state", "claims": []},
+                {
+                    "id": "step-3",
+                    "title": "Mixed",
+                    "claims": [
+                        {"text": "Final shape.", "confidence": "grounded"},
+                        {"text": "How we struggled.", "confidence": "grounded", "mode": "journey"},
+                    ],
+                    "decisions": [{"decision": "The kept call"}],
+                    "errors_encountered": [{"error": "A transient snag"}],
+                },
+            ],
+        }
+        html = self._render(tmp_path, walkthrough)
+        # Whole-step tagging on the article (and its TOC entry + jump card).
+        assert 'data-step-id="step-1"' in html and 'data-view-tag="journey"' in html
+        assert 'data-step-id="step-2"' in html and 'data-view-tag="end-state"' in html
+        # A both-step is not tagged.
+        assert 'id="step-3"' in html
+        # Per-claim tagging: the journey claim is tagged, the default claim is not.
+        assert 'data-view-tag="journey">How we struggled.' in html
+        assert "<p class=\"claim claim--grounded\">Final shape." in html
+        # Decisions default to both (untagged); gotchas default to journey (tagged).
+        assert 'id="step-3-decision-1">' in html  # no data-view-tag on the decision
+        assert 'id="step-3-gotcha-1" data-view-tag="journey">' in html
+
+    def test_gotcha_can_opt_into_both_as_a_live_constraint(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/p"},
+            "overview": {"goal": "G"},
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Engine",
+                    "claims": [],
+                    "errors_encountered": [
+                        {"error": "Segfaults on Node 25; pinned to Node 22.", "mode": "both"}
+                    ],
+                }
+            ],
+        }
+        html = self._render(tmp_path, walkthrough)
+        # A both-tagged gotcha carries no data-view-tag, so it shows in either view.
+        assert 'id="step-1-gotcha-1">' in html
+        # And it is not journey-tagged.
+        assert 'id="step-1-gotcha-1" data-view-tag' not in html
+
+    def test_overview_end_state_framing_renders_both_variants(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/p"},
+            "overview": {
+                "goal": "Journey goal walking the path.",
+                "summary": ["We started here.", "Then pivoted.", "Finally landed."],
+                "end_state": {
+                    "goal": "End state goal: the final shape.",
+                    "summary": ["Two services.", "One engine, many tenants."],
+                },
+            },
+            "steps": [{"id": "step-1", "title": "S", "claims": []}],
+        }
+        html = self._render(tmp_path, walkthrough)
+        assert '<h1 class="hero__title reveal" data-view-tag="end-state">End state goal: the final shape.' in html
+        assert '<h1 class="hero__title reveal" data-view-tag="journey">Journey goal walking the path.' in html
+        assert 'data-view-tag="end-state">' in html  # end-state summary list
+        assert "Two services." in html and "We started here." in html
+
+    def test_reasoning_index_items_carry_a_view(self):
+        prepared = prepare_data(
+            {
+                "meta": {"repo_root": "/tmp/p"},
+                "overview": {},
+                "steps": [
+                    {
+                        "id": "step-1",
+                        "title": "Journey step",
+                        "mode": "journey",
+                        "decisions": [{"decision": "A path decision"}],
+                    },
+                    {
+                        "id": "step-2",
+                        "title": "Mixed step",
+                        "decisions": [{"decision": "A kept decision"}],
+                        "errors_encountered": [{"error": "A snag"}],
+                    },
+                ],
+            }
+        )
+        decisions = prepared["overview"]["_decision_index"]
+        by_text = {d["text"]: d["view"] for d in decisions}
+        # A journey step forces its decision to journey; an untagged decision in a
+        # both-step stays both; a gotcha defaults to journey.
+        assert by_text["A path decision"] == "journey"
+        assert by_text["A kept decision"] == "both"
+        assert prepared["overview"]["_gotcha_index"][0]["view"] == "journey"
 
 
 class TestAltitudeLadder:
@@ -590,3 +1072,41 @@ class TestMermaidRendering:
         monkeypatch.setattr(render_html.subprocess, "run", fake_run)
         svg = render_html.render_mermaid_svg("flowchart LR\nA-->B")
         assert svg == ""
+
+
+# ---------------------------------------------------------------------------
+# embed_overview_diagram_images
+# ---------------------------------------------------------------------------
+
+# A 1x1 transparent PNG.
+_TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
+
+
+class TestEmbedOverviewDiagramImages:
+    def test_object_spec_resolves_both_themes(self, tmp_path: Path):
+        (tmp_path / "ov.light.png").write_bytes(_TINY_PNG)
+        (tmp_path / "ov.dark.png").write_bytes(_TINY_PNG)
+        overview = {"diagram_image": {"light": "ov.light.png", "dark": "ov.dark.png"}}
+        render_html.embed_overview_diagram_images(overview, tmp_path, repo_root="")
+        assert overview["_diagram_image_light"].startswith("data:image/")
+        assert overview["_diagram_image_dark"].startswith("data:image/")
+
+    def test_string_spec_used_for_both_themes(self, tmp_path: Path):
+        (tmp_path / "ov.png").write_bytes(_TINY_PNG)
+        overview = {"diagram_image": "ov.png"}
+        render_html.embed_overview_diagram_images(overview, tmp_path, repo_root="")
+        assert overview["_diagram_image_light"].startswith("data:image/")
+        assert overview["_diagram_image_dark"].startswith("data:image/")
+
+    def test_missing_file_sets_nothing_and_does_not_raise(self, tmp_path: Path):
+        overview = {"diagram_image": {"light": "nope.png", "dark": "missing.png"}}
+        render_html.embed_overview_diagram_images(overview, tmp_path, repo_root="")
+        assert "_diagram_image_light" not in overview
+        assert "_diagram_image_dark" not in overview
+
+    def test_no_spec_is_noop(self, tmp_path: Path):
+        overview = {}
+        render_html.embed_overview_diagram_images(overview, tmp_path, repo_root="")
+        assert overview == {}

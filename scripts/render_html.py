@@ -35,7 +35,36 @@ except Exception:
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_TEMPLATE = SCRIPT_DIR.parent / "assets" / "walkthrough-template.html"
-DISPLAYABLE_ROOT_DIRS = {"src", "e2e", "scripts", "docs", "db"}
+DISPLAYABLE_ROOT_DIRS = {"src", "e2e", "scripts", "docs", "db", "repos", "likec4"}
+MAX_OVERVIEW_INDEX_ITEMS = 10
+MAX_OVERVIEW_TEASER_CHARS = 180
+
+# --- View modes -----------------------------------------------------------
+# Every step / claim / decision / gotcha carries an optional `mode` saying which
+# of the two reader views it belongs to. The viewer can toggle between:
+#   "end-state" — just where the work landed (the final architecture/result).
+#   "journey"   — how we got there (the chronology, pivots, dead-ends).
+# `both` (the default for most content) shows in either view. Gotchas default to
+# `journey` because a problem-hit-and-fixed is by nature "how we got here"; tag a
+# gotcha `both`/`end-state` when it is really a live, current constraint.
+VIEW_VALUES = {"both", "journey", "end-state"}
+DEFAULT_DECISION_VIEW = "both"
+DEFAULT_GOTCHA_VIEW = "journey"
+
+
+def normalize_view(value: object, default: str) -> str:
+    """Clamp an authored `mode` value to one of {both, journey, end-state}."""
+    text = str(value or "").strip().lower().replace("_", "-").replace(" ", "-")
+    if text in VIEW_VALUES:
+        return text
+    if text in {"endstate", "end"}:
+        return "end-state"
+    return default
+
+
+def effective_item_view(step_view: str, item_view: str) -> str:
+    """A step pinned to one view forces its items there; otherwise use the item's own view."""
+    return step_view if step_view != "both" else item_view
 
 
 def get_pygments_css() -> str:
@@ -83,6 +112,85 @@ def _escape(text: str) -> str:
     )
 
 
+
+
+def _compact_text(value: object) -> str:
+    """Collapse model prose into a one-line UI string."""
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _truncate_text(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    break_at = text.rfind(" ", 0, max_chars + 1)
+    if break_at < int(max_chars * 0.65):
+        break_at = max_chars
+    return text[:break_at].rstrip(" .,;:") + "..."
+
+
+def derive_step_overview_teaser(step: dict) -> str:
+    """Pick the best compact line for overview navigation."""
+    for key in ("takeaway", "intent"):
+        text = _compact_text(step.get(key))
+        if text:
+            return _truncate_text(text, MAX_OVERVIEW_TEASER_CHARS)
+
+    claims = step.get("claims") or []
+    if isinstance(claims, list):
+        for claim in claims:
+            text = _compact_text(claim.get("text") if isinstance(claim, dict) else claim)
+            if text:
+                return _truncate_text(text, MAX_OVERVIEW_TEASER_CHARS)
+
+    return ""
+
+
+def normalize_step_reasoning_items(step: dict) -> None:
+    """Normalize legacy string decisions/gotchas into the renderer object shape."""
+    step["decisions"] = _normalize_reasoning_list(step.get("decisions"), "decision")
+    gotchas = step.get("errors_encountered")
+    if gotchas is None:
+        gotchas = step.get("gotchas")
+    step["errors_encountered"] = _normalize_reasoning_list(gotchas, "gotcha")
+
+
+def _normalize_reasoning_list(items: object, kind: str) -> list[dict]:
+    if not isinstance(items, list):
+        items = [items] if _compact_text(items) else []
+
+    normalized: list[dict] = []
+    for item in items:
+        if isinstance(item, dict):
+            next_item = dict(item)
+            if kind == "decision":
+                text = _compact_text(
+                    next_item.get("decision") or next_item.get("text") or next_item.get("message")
+                )
+                if not text:
+                    continue
+                next_item["decision"] = text
+                if "rationale" not in next_item and next_item.get("detail"):
+                    next_item["rationale"] = _compact_text(next_item.get("detail"))
+            else:
+                text = _compact_text(
+                    next_item.get("error") or next_item.get("text") or next_item.get("message")
+                )
+                if not text:
+                    continue
+                next_item["error"] = text
+                if "resolution" not in next_item:
+                    resolution = _compact_text(next_item.get("fix") or next_item.get("detail"))
+                    if resolution:
+                        next_item["resolution"] = resolution
+            normalized.append(next_item)
+            continue
+
+        text = _compact_text(item)
+        if not text:
+            continue
+        normalized.append({"decision": text} if kind == "decision" else {"error": text})
+
+    return normalized
 
 
 def normalize_file_ref(file_path: object, repo_root: str = "") -> dict:
@@ -190,6 +298,107 @@ def filter_file_refs(file_paths: list[object], repo_root: str, *, overview: bool
     return refs
 
 
+def _normalize_overview_index_item(
+    item: dict,
+    step: dict,
+    step_number: int,
+    kind: str,
+    item_number: int,
+    view: str = "both",
+) -> dict | None:
+    """Convert a decision/gotcha into a compact overview jump item."""
+    if not isinstance(item, dict):
+        return None
+    if kind == "decision":
+        text = item.get("decision") or item.get("text") or ""
+        detail = item.get("rationale") or ""
+    else:
+        text = item.get("error") or item.get("text") or item.get("message") or ""
+        detail = item.get("resolution") or ""
+    text = str(text or "").strip()
+    if not text:
+        return None
+    step_id = step.get("id") or f"step-{step_number}"
+    return {
+        "kind": kind,
+        "step_id": step_id,
+        "step_number": step_number,
+        "step_title": step.get("title") or f"Step {step_number}",
+        "item_number": item_number,
+        "target_id": f"{step_id}-{kind}-{item_number}",
+        "text": text,
+        "detail": str(detail or "").strip(),
+        "view": view,
+    }
+
+
+def build_overview_indices(steps: list[dict]) -> dict[str, list[dict]]:
+    """Build compact decision/gotcha jump indices for the overview.
+
+    The overview is capped, so take the first item from each step before taking
+    second items. That keeps one dense step from hiding later work phases.
+    """
+    per_step_decisions: list[list[dict]] = []
+    per_step_gotchas: list[list[dict]] = []
+    for idx, step in enumerate(steps or [], start=1):
+        if not isinstance(step, dict):
+            continue
+        step_view = normalize_view(step.get("mode"), "both")
+        step_decisions: list[dict] = []
+        for item_idx, decision in enumerate(step.get("decisions") or [], start=1):
+            view = effective_item_view(
+                step_view,
+                normalize_view((decision or {}).get("mode"), DEFAULT_DECISION_VIEW)
+                if isinstance(decision, dict) else DEFAULT_DECISION_VIEW,
+            )
+            item = _normalize_overview_index_item(decision, step, idx, "decision", item_idx, view)
+            if item:
+                step_decisions.append(item)
+        if step_decisions:
+            per_step_decisions.append(step_decisions)
+        step_gotchas: list[dict] = []
+        for item_idx, error in enumerate(step.get("errors_encountered") or [], start=1):
+            view = effective_item_view(
+                step_view,
+                normalize_view((error or {}).get("mode"), DEFAULT_GOTCHA_VIEW)
+                if isinstance(error, dict) else DEFAULT_GOTCHA_VIEW,
+            )
+            item = _normalize_overview_index_item(error, step, idx, "gotcha", item_idx, view)
+            if item:
+                step_gotchas.append(item)
+        if step_gotchas:
+            per_step_gotchas.append(step_gotchas)
+    decision_total = sum(len(group) for group in per_step_decisions)
+    gotcha_total = sum(len(group) for group in per_step_gotchas)
+    decisions = _round_robin_cap(per_step_decisions, decision_total)
+    gotchas = _round_robin_cap(per_step_gotchas, gotcha_total)
+    return {
+        "decisions": decisions[:MAX_OVERVIEW_INDEX_ITEMS],
+        "decision_overflow": decisions[MAX_OVERVIEW_INDEX_ITEMS:],
+        "gotchas": gotchas[:MAX_OVERVIEW_INDEX_ITEMS],
+        "gotcha_overflow": gotchas[MAX_OVERVIEW_INDEX_ITEMS:],
+        "decision_total": decision_total,
+        "gotcha_total": gotcha_total,
+    }
+
+
+def _round_robin_cap(groups: list[list[dict]], limit: int) -> list[dict]:
+    result: list[dict] = []
+    depth = 0
+    while len(result) < limit:
+        added = False
+        for group in groups:
+            if depth < len(group):
+                result.append(group[depth])
+                added = True
+                if len(result) >= limit:
+                    break
+        if not added:
+            break
+        depth += 1
+    return result
+
+
 def sanitize_svg(svg: str) -> str:
     """Strip wrapper noise and reject obviously dangerous SVG content."""
     cleaned = re.sub(r"^\s*<\?xml[^>]*>\s*", "", svg, flags=re.IGNORECASE)
@@ -252,6 +461,116 @@ def render_mermaid_svg(diagram_mermaid: str) -> str:
             return ""
 
 
+def _image_to_data_uri(path: Path, max_width: int = 1920) -> str:
+    """Embed an image file as a data URI, downscaling to max_width when Pillow is available.
+
+    Preserves transparency (re-encodes to PNG when resized). Falls back to embedding
+    the raw bytes if Pillow is missing or the image is already within max_width.
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return ""
+    import base64
+
+    mime = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".gif": "image/gif", ".svg": "image/svg+xml",
+    }.get(path.suffix.lower(), "image/png")
+    try:
+        from PIL import Image
+        import io
+
+        img = Image.open(io.BytesIO(raw))
+        if img.width > max_width:
+            ratio = max_width / img.width
+            img = img.resize((max_width, max(1, int(img.height * ratio))), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG", optimize=True)
+            return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('ascii')}"
+    except Exception:
+        pass
+    return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+
+
+def _resolve_existing_path(ref: str, base_dir: Path, repo_root: str) -> Path | None:
+    """Resolve an image ref to an existing file: absolute, then repo-root-relative, then base-dir-relative."""
+    if not ref:
+        return None
+    p = Path(ref)
+    candidates: list[Path] = [p] if p.is_absolute() else []
+    if not p.is_absolute():
+        if repo_root:
+            candidates.append(Path(repo_root) / ref)
+        candidates.append(base_dir / ref)
+    return next((c for c in candidates if c.exists()), None)
+
+
+def embed_overview_diagram_images(overview: dict, base_dir: Path, repo_root: str) -> None:
+    """Resolve overview.diagram_image into embedded data URIs (_diagram_image_light / _dark).
+
+    ``diagram_image`` may be a string (one image, used for both themes) or an object
+    ``{"light": <path>, "dark": <path>}``. Paths resolve against repo_root then base_dir.
+    This is preferred over a Mermaid diagram when present (e.g. a real LikeC4 export).
+    """
+    spec = overview.get("diagram_image")
+    if not spec:
+        return
+    if isinstance(spec, str):
+        light_ref = dark_ref = spec
+    elif isinstance(spec, dict):
+        light_ref = spec.get("light") or spec.get("dark") or ""
+        dark_ref = spec.get("dark") or spec.get("light") or ""
+    else:
+        return
+    light_path = _resolve_existing_path(light_ref, base_dir, repo_root)
+    dark_path = _resolve_existing_path(dark_ref, base_dir, repo_root)
+    if light_path is None and dark_path is None:
+        print(f"Warning: overview diagram_image not found: {spec}", file=sys.stderr)
+        return
+    if light_path is not None:
+        overview["_diagram_image_light"] = _image_to_data_uri(light_path)
+    if dark_path is not None:
+        overview["_diagram_image_dark"] = _image_to_data_uri(dark_path)
+
+
+def embed_step_diagram_images(step: dict, base_dir: Path, repo_root: str) -> None:
+    """Resolve step.diagram into embedded data URIs (_diagram_image_light / _dark).
+
+    Mirrors embed_overview_diagram_images but per-step, so a step can carry its own
+    architecture diagram rendered as an always-visible figure (a server-side <img>),
+    rather than a lazy, JS-injected thumbnail inside the collapsed evidence block.
+    ``diagram`` may be a string path or ``{"light": <path>, "dark": <path>}``; an
+    optional ``diagram_caption`` becomes ``_diagram_caption``.
+    """
+    spec = step.get("diagram")
+    if not spec:
+        return
+    if isinstance(spec, str):
+        light_ref = dark_ref = spec
+    elif isinstance(spec, dict):
+        light_ref = spec.get("light") or spec.get("dark") or ""
+        dark_ref = spec.get("dark") or spec.get("light") or ""
+    else:
+        return
+    light_path = _resolve_existing_path(light_ref, base_dir, repo_root)
+    dark_path = _resolve_existing_path(dark_ref, base_dir, repo_root)
+    if light_path is None and dark_path is None:
+        print(f"Warning: step {step.get('id', '?')} diagram not found: {spec}", file=sys.stderr)
+        return
+    if light_path is not None and light_path == dark_path:
+        # Single theme-agnostic source — embed once (avoids duplicating the bytes).
+        step["_diagram_image"] = _image_to_data_uri(light_path)
+    else:
+        if light_path is not None:
+            step["_diagram_image_light"] = _image_to_data_uri(light_path)
+        if dark_path is not None:
+            step["_diagram_image_dark"] = _image_to_data_uri(dark_path)
+    caption = step.get("diagram_caption")
+    if caption:
+        step["_diagram_caption"] = caption
+
+
 def summarize_evidence(evidence: dict) -> str:
     """Build the one-line scent label for the collapsed evidence block.
 
@@ -296,12 +615,54 @@ def prepare_data(data: dict) -> dict:
     data = json.loads(json.dumps(data))  # deep copy
     repo_root = ((data.get("meta") or {}).get("repo_root") or "").rstrip("/")
 
-    overview = data.get("overview") or {}
+    overview = data.get("overview")
+    if not isinstance(overview, dict):
+        overview = {}
+        data["overview"] = overview
     overview["key_file_refs"] = filter_file_refs(overview.get("key_files", []), repo_root, overview=True)
     overview["key_files"] = [ref["raw_path"] for ref in overview["key_file_refs"]]
-    overview["_diagram_svg"] = render_mermaid_svg(str(overview.get("diagram_mermaid") or ""))
 
-    for step in data.get("steps", []):
+    # End-state framing: an optional alternate goal/summary shown in the
+    # "end state" view. `goal`/`summary` stay the journey (and fallback) framing.
+    end_state = overview.get("end_state")
+    if isinstance(end_state, dict):
+        es_goal = _compact_text(end_state.get("goal"))
+        if es_goal:
+            overview["_end_state_goal"] = es_goal
+        es_summary = end_state.get("summary")
+        if not isinstance(es_summary, list):
+            es_summary = [es_summary] if _compact_text(es_summary) else []
+        es_summary = [str(s).strip() for s in es_summary if _compact_text(s)]
+        if es_summary:
+            overview["_end_state_summary"] = es_summary
+    has_diagram_image = bool(
+        overview.get("diagram_image")
+        or overview.get("_diagram_image_light")
+        or overview.get("_diagram_image_dark")
+    )
+    overview["_diagram_svg"] = (
+        ""
+        if has_diagram_image
+        else render_mermaid_svg(str(overview.get("diagram_mermaid") or ""))
+    )
+    steps = data.get("steps") if isinstance(data.get("steps"), list) else []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        normalize_step_reasoning_items(step)
+        step["_overview_teaser"] = derive_step_overview_teaser(step)
+
+    indices = build_overview_indices(steps)
+    overview["_decision_index"] = indices["decisions"]
+    overview["_gotcha_index"] = indices["gotchas"]
+    overview["_decision_overflow"] = indices["decision_overflow"]
+    overview["_gotcha_overflow"] = indices["gotcha_overflow"]
+    overview["_decision_total"] = indices["decision_total"]
+    overview["_gotcha_total"] = indices["gotcha_total"]
+
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
         evidence = step.get("evidence", {})
         if not evidence:
             step["_evidence_summary"] = "View Evidence"
@@ -597,11 +958,33 @@ def render(
 
     raw_data = resolve_media(raw_data, normalized_path, media_base_dir=input_path.parent)
 
+    repo_root = ((raw_data.get("meta") or {}).get("repo_root") or "").rstrip("/")
+    embed_overview_diagram_images(
+        raw_data.setdefault("overview", {}), input_path.parent, repo_root
+    )
+    for _step in raw_data.get("steps", []) or []:
+        if isinstance(_step, dict):
+            embed_step_diagram_images(_step, input_path.parent, repo_root)
+
     data = prepare_data(raw_data)
     pygments_css = Markup(get_pygments_css())
 
-    # Serialize data for embedding as <script>const DATA = ...;</script>
-    data_json = serialize_script_data(data)
+    # Serialize data for embedding as <script>const DATA = ...;</script>.
+    # Strip the heavy server-rendered diagram payloads — the client JS never reads
+    # them (the diagram is rendered once in the Jinja template), so keeping them in
+    # DATA would double the embedded image/SVG bytes.
+    script_data = json.loads(json.dumps(data))
+    _ov = script_data.get("overview")
+    if isinstance(_ov, dict):
+        for _k in ("_diagram_image_light", "_diagram_image_dark", "_diagram_svg"):
+            _ov.pop(_k, None)
+    # Per-step diagram payloads are rendered once in the Jinja template; the client
+    # JS never reads them, so drop them from DATA to avoid doubling the image bytes.
+    for _st in script_data.get("steps", []) or []:
+        if isinstance(_st, dict):
+            for _k in ("_diagram_image", "_diagram_image_light", "_diagram_image_dark"):
+                _st.pop(_k, None)
+    data_json = serialize_script_data(script_data)
 
     # Set up Jinja2
     template_dir = template_path.parent

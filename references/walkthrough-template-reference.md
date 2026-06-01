@@ -31,13 +31,14 @@ All user/agent-authored text (`overview.goal`, `step.title`, `claim.text`,
 summary items, file paths, command text, decisions, gotchas) relies on Jinja
 **autoescape**. Do **not** add `| safe` to any of those. `| safe` is used only for
 trusted, server-produced HTML: `pygments_css`, `data.overview._diagram_svg`, and
-each `hunk.rendered_html`.
+each `hunk.rendered_html`. Overview diagram image data URIs are produced by the
+renderer from local files, not by agent-authored HTML.
 
 ### Variables Injected by `render_html.py`
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `data` | dict | The full walkthrough JSON after `prepare_data()` (adds `_diagram_svg`, `key_file_refs`, per-step `_file_refs`, `_evidence_summary`, and `rendered_html` on each diff hunk) |
+| `data` | dict | The full walkthrough JSON after render preparation (adds `_diagram_image_light`/`_diagram_image_dark` when `diagram_image` is present, `_diagram_svg` fallback, overview `_decision_index`/`_gotcha_index` plus overflow lists and totals, `key_file_refs`, normalized decision/gotcha objects, per-step `_overview_teaser`, `_file_refs`, `_evidence_summary`, and `rendered_html` on each diff hunk) |
 | `data_json` | Markup | Safe-serialized JSON embedded verbatim into `<script>const DATA = {{ data_json }};</script>`. Produced by `serialize_script_data()` (escapes `</` → `<\/` and U+2028/U+2029) |
 | `pygments_css` | Markup | Monokai token CSS from `HtmlFormatter(style="monokai", cssclass="highlight", nobackground=True)`. Injected into the `<style>` block via `{{ pygments_css }}` |
 
@@ -52,9 +53,13 @@ render_html.py --input X --output Y [--normalized Z] [--captures-manifest M]
     +--> bridge_screenshots_to_media()  # evidence.screenshots[] -> evidence.media[] stubs
     +--> attach_capture_media()         # optional Path-B captures/manifest.json
     +--> resolve_media()                # hydrate media data_uri/thumbnail_uri (Pillow compresses)
+    +--> embed_overview_diagram_images() # overview.diagram_image -> _diagram_image_light/_dark
     +--> prepare_data()
     |       +--> filter_file_refs()        -> overview.key_file_refs, step._file_refs
-    |       +--> render_mermaid_svg()      -> overview._diagram_svg  (sanitized inline SVG)
+    |       +--> normalize_step_reasoning_items()
+    |       +--> derive_step_overview_teaser() -> step._overview_teaser
+    |       +--> build_overview_indices()  -> overview._decision_index/_gotcha_index + overflow + totals
+    |       +--> render_mermaid_svg()      -> overview._diagram_svg  (sanitized inline SVG fallback)
     |       +--> highlight_diff_hunk()     -> hunk.rendered_html  (Pygments; hunk.html dropped)
     |       +--> summarize_evidence()      -> step._evidence_summary
     +--> get_pygments_css()
@@ -76,10 +81,11 @@ Any rewrite of the template MUST keep all of these:
    → no CDN webfonts, no runtime Mermaid. Fonts are **system stacks**
    (serif display + humanist body + mono); a future custom display face is a
    one-line base64 `@font-face` swap.
-3. Render the overview diagram from `data.overview._diagram_svg | safe`, falling
-   back to `<pre>{{ data.overview.diagram_mermaid }}</pre>` **only** when there is
-   no SVG. (Tests assert `<svg class="mermaid-svg"` present and `<pre>flowchart LR`
-   absent.)
+3. Render the overview diagram from image exports first (`_diagram_image_light`
+   / `_diagram_image_dark`), then from `data.overview._diagram_svg | safe`, and
+   fall back to `<pre>{{ data.overview.diagram_mermaid }}</pre>` **only** when
+   neither image nor SVG is available. LikeC4 exports are preferred for new
+   walkthroughs; Mermaid is fallback.
 4. Emit the evidence summary as `>{{ step._evidence_summary }}<` with **no adjacent
    whitespace**, so e.g. `>1 cmd · 1 shot<` appears verbatim. Achieved with
    `<span class="ev-summary">{{ step._evidence_summary }}</span>`.
@@ -87,6 +93,10 @@ Any rewrite of the template MUST keep all of these:
    `<script>const DATA = {{ data_json }};</script>`.
 6. Render diff hunks from `hunk.rendered_html | safe` — never `hunk.html`
    (dropped by `prepare_data`).
+7. Keep the End State / Journey view toggle: `<html data-view="endstate">` default,
+   the `#viewEndstate` / `#viewJourney` segmented buttons, the
+   `html[data-view="endstate"] [data-view-tag="journey"]` filter rule, and the
+   `walkthrough-view` localStorage key. (See §3.3a; enforced by `TestViewModes`.)
 
 The full suite (`uv run pytest`) must stay green after any change.
 
@@ -109,8 +119,18 @@ data
 │   ├── summary            # list[str], optional — hero bullets + first 3 on title slide
 │   ├── key_files          # list[str], optional (raw paths after filtering)
 │   ├── key_file_refs      # list[FileRef] (added by prepare_data) — hero "Key files" chips
+│   ├── diagram_image      # string or {light,dark}, optional — preferred LikeC4 export path(s)
+│   ├── _diagram_image_*   # string (added by render) — embedded image data URIs
+│   ├── _decision_index    # list[IndexItem] (added by prepare_data) — overview jump list
+│   ├── _gotcha_index      # list[IndexItem] (added by prepare_data) — overview jump list
+│   ├── _decision_overflow # list[IndexItem] (added by prepare_data) — collapsed remainder
+│   ├── _gotcha_overflow   # list[IndexItem] (added by prepare_data) — collapsed remainder
+│   ├── _decision_total    # int (added by prepare_data) — total source decisions
+│   ├── _gotcha_total      # int (added by prepare_data) — total source gotchas
 │   ├── diagram_mermaid    # string, optional — Mermaid source (fallback <pre> only)
-│   └── _diagram_svg       # string (added by prepare_data) — sanitized inline SVG
+│   ├── _diagram_svg       # string (added by prepare_data) — sanitized inline SVG fallback
+│   ├── end_state          # {goal, summary}, optional — End State view framing
+│   └── _end_state_*       # string/list (added by prepare_data) — normalized end-state goal/summary
 └── steps                  # list[Step]
 ```
 
@@ -129,14 +149,37 @@ data
 | `overview.goal` | string | has `default("")` | `<title>`, `.topbar__title`, `.hero__title`, title slide `<h1>` |
 | `overview.summary` | list[str] | No | `.hero__summary` (all) and `.slide__summary` (first 3) |
 | `overview.key_file_refs` | list[FileRef] | No | `.chip-row` of `.key-file` links in the hero |
-| `overview._diagram_svg` | string | No | `.overview-diagram` (inline SVG, `| safe`) |
-| `overview.diagram_mermaid` | string | No | `<pre>` fallback only when `_diagram_svg` is empty |
+| `overview.diagram_image` | string or object | No | Local image export reference, embedded by render as `_diagram_image_light` / `_diagram_image_dark`; preferred for LikeC4 |
+| `overview._diagram_image_light` / `_diagram_image_dark` | string | No | `<img>` data URI(s), preferred over SVG/Mermaid |
+| `overview._decision_index` | list[IndexItem] | added | Overview "Decision map"; capped decision list linked to callout anchors, sampled across steps before second items |
+| `overview._gotcha_index` | list[IndexItem] | added | Overview "Gotcha map"; capped error/fix list linked to callout anchors, sampled across steps before second items |
+| `overview._decision_overflow` / `_gotcha_overflow` | list[IndexItem] | added | Collapsed "show more" remainder for full decision/gotcha drill-down without making the overview dense by default |
+| `overview._decision_total` / `_gotcha_total` | int | added | Source totals used for "shown of total" labels when the overview maps are capped |
+| `overview._diagram_svg` | string | No | `.overview-diagram` inline SVG fallback (`| safe`) |
+| `overview.diagram_mermaid` | string | No | `<pre>` fallback only when no image or `_diagram_svg` is available |
+| `overview.end_state` | object | No | `{goal, summary}` End State framing; normalized by render into `_end_state_goal` / `_end_state_summary` |
+| `overview._end_state_goal` / `_end_state_summary` | string / list[str] | added | When present, hero + title slide render an `end-state`-tagged variant alongside the journey `goal`/`summary` |
 
 A stat strip in the hero (and the title slide) is computed **in Jinja** with a
 `namespace`: `steps = data.steps|length`, plus summed `files` (Σ `step._file_refs`),
 `commands` (Σ `step.evidence.commands`), `decisions` (Σ `step.decisions`), and
-`fixes` (Σ `step.errors_encountered`). A sixth "min read" stat is filled by JS.
+`fixes` (Σ `step.errors_encountered`). Each stat number carries `data-stat="…"` so
+the JS view controller can **recompute it to the active view** (the Jinja values are
+the full totals = the Journey view). A sixth "min read" stat is filled by JS.
 The hero also renders a **jump grid** of cards linking to each step.
+
+### 3.3a View modes (End State / Journey)
+
+A topbar segmented control (`.view-seg`) sets `data-view` on `<html>`
+(`endstate` | `journey`); the choice is persisted in `localStorage`
+(`walkthrough-view`) and defaults to `endstate`. Steps, claims, decision/gotcha
+callouts, jump cards, TOC items, deck slides, reasoning-map items, and the
+overview hero/title variants carry `data-view-tag="journey"` or `"end-state"`
+(emitted only when the authored `mode` is non-`both`); two CSS rules hide the
+mismatched ones. Gotcha callouts default to `journey`; `.callout__alts` are always
+hidden in End State. The JS `setView()` reapplies visibility, collapses now-empty
+`[data-view-collapsible]` bands and reasoning-map groups, recomputes the stat
+strip, read time, and the deck's visible-slide set/counter.
 
 ### 3.4 `data.steps[]` (Step Object)
 
@@ -144,14 +187,16 @@ The hero also renders a **jump grid** of cards linking to each step.
 |-------|------|----------|----------------|
 | `step.id` | string | Yes | `id` on the reading `<article>` and overview `<section>`; `#`-anchor in TOC, jump grid, copy-link; `data-step-id`; `id="media-<id>"`; DATA lookups |
 | `step.title` | string | Yes | TOC text, jump card title, `.step-title`, `.slide__title` |
-| `step.takeaway` | string | No (but author it) | `.step-takeaway` lead (reading), `.slide__takeaway` (deck), and the jump-card subline `.jump-card__d`. The "broad shape" the reader scans first. |
+| `step.takeaway` | string | No (but author it) | `.step-takeaway` lead (reading) and `.slide__takeaway` (deck). The "broad shape" the reader scans first. Jump cards use `_overview_teaser`, which prefers `takeaway` but falls back to `intent` or the first claim for older drafts. |
 | `step.intent` | string | No | `.step-intent` (reading); `.slide__intent` on the deck **only when there is no `takeaway`** |
 | `step.claims` | list[Claim] | No | `.claim` paragraphs (reading); first **4** on the slide, with a "+N more — see Reading" note when capped |
 | `step.evidence` | object | No | Collapsed `<details class="evidence">` (closed by default) + one-line scent chip, rendered only when evidence has `diff_hunks`/`commands`/`media` |
 | `step.decisions` | list[Decision] | No | `◆ Decision` callouts in the visible `.callouts` band (above the evidence block) |
 | `step.errors_encountered` | list[Error] | No | `⚠ Gotcha` callouts in the visible `.callouts` band (above the evidence block) |
+| `step._overview_teaser` | string | added by prepare_data | Jump-card subline `.jump-card__d`; derived from `takeaway`, then `intent`, then first claim, and clamped in CSS |
 | `step._file_refs` | list[FileRef] | added by prepare_data | "Files touched" chips (reading) + `.slide__file` chips (first 5, deck) |
 | `step._evidence_summary` | string | added by prepare_data | `<span class="ev-summary">` scent text (the `>…<` constraint); appends `N failed` when any command failed |
+| `step.mode` | string | No (default `both`) | View tag — emits `data-view-tag` on the `<article>`, TOC item, jump card, and deck slide. `claim.mode` / `decision.mode` / `errors_encountered[].mode` tag those elements too (gotchas default `journey`). See §3.3a. |
 
 `<details class="evidence">` is rendered when `step.evidence` has any of
 `diff_hunks`, `commands`, or `media` (a files-only evidence object renders no
@@ -230,6 +275,10 @@ Unchanged contract. JS `renderMedia()`/`renderThumb()` populate `#media-<id>`:
 
 ### 3.10 `step.decisions[]` (Decision Object)
 
+The canonical shape is an object. The renderer also accepts legacy string
+entries and normalizes them to `{ "decision": "..." }` so older projected
+walkthroughs still render in the overview map and callout band.
+
 | Field | Usage |
 |-------|-------|
 | `decision.decision` | `.callout__title` of a `◆ Decision` callout |
@@ -237,6 +286,9 @@ Unchanged contract. JS `renderMedia()`/`renderThumb()` populate `#media-<id>`:
 | `decision.alternatives_considered` | `.callout__alts` list (now rendered) |
 
 ### 3.11 `step.errors_encountered[]` (Error Object)
+
+The canonical shape is an object. The renderer also accepts legacy string
+entries and normalizes them to `{ "error": "..." }`.
 
 | Field | Usage |
 |-------|-------|
@@ -265,16 +317,18 @@ and `abs_path` in `data-abs-path`.
   main.reading-view#readingView
     {# Jinja namespace accumulates stat-strip totals #}
     section.overview.step#overview[data-step="0"]
-      .hero (eyebrow, title, summary, .stat-strip, .legend?, key-file chips)
-      .overview-diagram (_diagram_svg | safe  OR  <pre> fallback)
-      .jump-grid (cards: __n number + __body[ __t title + __d takeaway subline ])
+      .hero (two-column desktop: eyebrow, title, summary, .stat-strip, .legend?)
+      .overview-diagram (diagram image(s) OR _diagram_svg | safe OR <pre> fallback)
+      .jump-grid (cards: __n number + __body[ __t title + __d takeaway subline + decision/gotcha scent ])
+      .overview-files? (key-file chips after the step grid)
+      .reasoning-map? (decision/gotcha jump lists after the step cards; links to callout anchors)
     {% for step %}
     article.step#<id>[data-step][data-step-id]
       .step-eyebrow (Step N + copy-link "#")
       h2.step-title ; p.step-takeaway? (gist) ; p.step-intent? (why)
       .files (file-chip chips, JS +/− counts)
       .claims (claim paragraphs; pill + tint on inferred/speculative, plain grounded)
-      .callouts?  (◆ Decision / ⚠ Gotcha callouts — always visible reasoning band)
+      .callouts?  (◆ Decision / ⚠ Gotcha callouts — always visible reasoning band, anchored)
       details.evidence  (closed by default; only when diff_hunks/commands/media)
         summary > span.evidence__hint "Evidence" + span.ev-summary{{ _evidence_summary }}
         .evidence__body
@@ -371,15 +425,24 @@ Three classes, instantiated as `new App()` on `DOMContentLoaded`
   (`#3fbfae` dark / `#0f766e` light), kept distinct from status hues.
 - **Status hues**: diff add green / del red; `inferred` amber; `speculative` crimson.
 - **Narrative components** (no side-stripe borders anywhere):
+  - `.overview .wrap` — two-column desktop header: the long goal sits left while
+    summary/stats sit right, keeping the step arc closer to the first scroll. It
+    collapses to one column at the sidebar breakpoint.
   - `.step-takeaway` / `.slide__takeaway` — a serif **lead** under the title, full
     text color, larger than the muted-sans `.step-intent`. The gist altitude.
   - `.claim` — clean paragraph for grounded; inferred/speculative get a pill + a
     subtle tinted block (full hairline `color-mix` border), so exceptions pop.
   - `.callout` (decision/gotcha) — full tinted border + background wash + leading
     icon label; teal for decisions, the del hue for gotchas, so they scan apart.
+    Direct decision/gotcha anchors use `:target` highlighting so reasoning-map
+    links visibly identify their landing callout.
   - `.evidence` — collapsed `<details>` with a mono scent chip; the `.evidence__hint`
     "Evidence" label precedes the chip.
-  - `.jump-card` — number + title + 2-line clamped `takeaway` subline (skim grid).
+  - `.jump-card` — number + title + 2-line clamped `_overview_teaser` subline
+    plus compact decision/gotcha counts, so the work-arc grid also works as a
+    drill-down index.
+  - `.overview-files` — key-file chips shown after the step grid, so file links
+    are available without delaying the first-pass work arc.
 - **Atmosphere**: layered radial gradients + a faint inline-SVG grain
   (`--grain`, `feTurbulence`) on the overview hero only; hairline rules elsewhere.
 - **Diff highlighting**: `{{ pygments_css }}` (Monokai) + `.diff__body .highlight pre`

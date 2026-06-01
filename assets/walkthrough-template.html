@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-mode="reading">
+<html lang="en" data-theme="dark" data-mode="reading" data-view="endstate">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -201,6 +201,30 @@
         .mode-toggle { color: var(--text); font-weight: 600; }
         .mode-toggle::before { content: "\25B8"; color: var(--accent); font-size: 0.9em; }
 
+        /* --- View toggle: End State vs Journey (a segmented control) --- */
+        .view-seg {
+            display: inline-flex; align-items: stretch;
+            border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+            overflow: hidden; background: var(--surface); flex-shrink: 0;
+        }
+        .view-seg__opt {
+            appearance: none; background: none; border: none; cursor: pointer;
+            font-family: var(--font-body); font-size: 0.8rem; font-weight: 600;
+            color: var(--text-3); padding: 6px 11px; line-height: 1; white-space: nowrap;
+            transition: color 0.18s ease, background 0.18s ease;
+        }
+        .view-seg__opt + .view-seg__opt { border-left: 1px solid var(--border-2); }
+        .view-seg__opt:hover { color: var(--accent); }
+        .view-seg__opt[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); }
+
+        /* View filtering — hide content that does not belong to the active view.
+           `journey` shows the full story; `end-state` shows only where it landed. */
+        html[data-view="endstate"] [data-view-tag="journey"] { display: none !important; }
+        html[data-view="journey"] [data-view-tag="end-state"] { display: none !important; }
+        /* Alternatives-considered are paths-not-taken — journey detail only. */
+        html[data-view="endstate"] .callout__alts,
+        html[data-view="endstate"] .slide__alts { display: none !important; }
+
         /* =========================================================
            SIDEBAR / TOC
            ========================================================= */
@@ -266,19 +290,31 @@
             background-image: var(--grain); background-size: 140px 140px;
             opacity: 0.035; mix-blend-mode: overlay;
         }
-        .overview .wrap { position: relative; z-index: 1; padding-top: clamp(2.5rem, 6vw, 5rem); padding-bottom: clamp(1.5rem, 3vw, 2.5rem); }
+        .overview .wrap {
+            max-width: 72rem;
+            position: relative; z-index: 1;
+            padding-top: clamp(2rem, 4.5vw, 3.8rem);
+            padding-bottom: clamp(1.3rem, 2.8vw, 2.2rem);
+            display: grid;
+            grid-template-columns: minmax(30rem, 1.08fr) minmax(22rem, 0.92fr);
+            column-gap: clamp(2rem, 4vw, 4.5rem);
+            align-items: start;
+        }
 
         .hero__eyebrow {
+            grid-column: 1 / -1;
             font-size: 0.72rem; font-weight: 700; letter-spacing: 0.16em;
             text-transform: uppercase; color: var(--accent); margin-bottom: 0.9rem;
         }
         .hero__title {
-            font-size: clamp(2rem, 1.4rem + 3.4vw, 3.65rem);
+            grid-column: 1;
+            font-size: clamp(1.85rem, 1.2rem + 1.9vw, 2.65rem);
             line-height: 1.08; letter-spacing: -0.018em; font-weight: 600;
-            max-width: 20ch; text-wrap: balance;
+            max-width: 28ch; text-wrap: balance;
         }
         .hero__summary {
-            list-style: none; margin-top: 1.5rem; display: flex; flex-direction: column;
+            grid-column: 2; grid-row: 2;
+            list-style: none; margin-top: 0.2rem; display: flex; flex-direction: column;
             gap: 0.55rem; max-width: 62ch;
         }
         .hero__summary li {
@@ -291,8 +327,9 @@
         }
 
         .stat-strip {
+            grid-column: 2;
             display: flex; flex-wrap: wrap; gap: clamp(1rem, 3vw, 2.6rem);
-            margin-top: 2rem; padding: 1.15rem 0;
+            margin-top: 1.35rem; padding: 1rem 0;
             border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline);
         }
         .stat { display: flex; flex-direction: column; gap: 0.1rem; }
@@ -310,11 +347,15 @@
         .chip-row { display: flex; flex-wrap: wrap; gap: 0.45rem; }
         .file-chip, .key-file {
             display: inline-flex; align-items: center; gap: 0.45rem;
+            max-width: 100%; min-width: 0;
             font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-2);
             text-decoration: none; background: var(--surface);
             border: 1px solid var(--border-2); border-radius: var(--radius-sm);
             padding: 4px 10px; transition: all 0.18s ease;
+            overflow-wrap: anywhere; word-break: break-word; white-space: normal;
         }
+        .file-chip span:first-child { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+        .key-file { min-height: 1.75rem; }
         .file-chip:hover, .key-file:hover {
             color: var(--accent); border-color: var(--accent); background: var(--accent-glow);
         }
@@ -332,6 +373,31 @@
             display: flex; align-items: center; justify-content: center; overflow: auto;
         }
         .overview-diagram svg { max-width: 100%; height: auto; }
+        .overview-diagram img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+        /* Theme-matched diagram images: dark variant by default (dark :root), light when toggled */
+        .overview-diagram .wt-diagram-light { display: none; }
+        .overview-diagram .wt-diagram-dark  { display: block; }
+        [data-theme="light"] .overview-diagram .wt-diagram-light { display: block; }
+        [data-theme="light"] .overview-diagram .wt-diagram-dark  { display: none; }
+        /* Per-step architecture diagram — always-visible figure (mirrors overview-diagram) */
+        .step-diagram {
+            margin: 1.4rem 0 0; padding: clamp(0.8rem, 2vw, 1.4rem);
+            border: 1px solid var(--hairline); border-radius: var(--radius);
+            background: var(--surface); overflow: auto;
+        }
+        .step-diagram img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+        .step-diagram .step-diagram__img { display: block; }
+        .step-diagram .wt-diagram-light { display: none; }
+        .step-diagram .wt-diagram-dark  { display: block; }
+        [data-theme="light"] .step-diagram .wt-diagram-light { display: block; }
+        [data-theme="light"] .step-diagram .wt-diagram-dark  { display: none; }
+        .step-diagram__cap { margin: 0.7rem 0 0; font-size: 0.82rem; color: var(--text-2); line-height: 1.5; }
+        /* Click any architecture diagram to open it full-screen in the lightbox */
+        .overview-diagram img, .step-diagram img {
+            cursor: zoom-in;
+            transition: box-shadow 140ms ease;
+        }
+        .overview-diagram img:hover, .step-diagram img:hover { box-shadow: var(--shadow-lg); }
         .overview-diagram pre {
             width: 100%; margin: 0; white-space: pre-wrap; word-break: break-word;
             font-family: var(--font-mono); font-size: 0.82rem; color: var(--text-2);
@@ -357,6 +423,20 @@
             font-size: 0.82rem; line-height: 1.4; color: var(--text-2);
             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
         }
+        .jump-card__meta {
+            display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.15rem;
+            font-size: 0.72rem; line-height: 1.3; color: var(--text-3);
+        }
+        .jump-card__badge {
+            display: inline-flex; align-items: center; gap: 0.28rem;
+            font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+        }
+        .jump-card__badge::before {
+            content: ""; width: 0.42rem; height: 0.42rem; border-radius: 50%;
+            background: currentColor; opacity: 0.75;
+        }
+        .jump-card__badge--decision { color: var(--accent); }
+        .jump-card__badge--gotcha { color: var(--del); }
 
         .section-rule { max-width: var(--maxw); margin: clamp(2rem,5vw,3.5rem) auto 0; border: none; border-top: 1px solid var(--hairline); }
 
@@ -422,8 +502,14 @@
 
         /* --- Confidence legend (overview, shown only when non-grounded claims exist) --- */
         .legend {
+            grid-column: 2;
             display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1.1rem;
             margin-top: 1.6rem; font-size: 0.82rem; color: var(--text-2);
+        }
+        .overview-files {
+            position: relative; z-index: 1; max-width: var(--maxw);
+            margin: 1.35rem auto 0;
+            padding: 0 clamp(1.1rem, 3vw, 2.5rem);
         }
         .legend__label {
             font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em;
@@ -442,6 +528,62 @@
         .legend__item--speculative .legend__swatch { background: var(--speculative-bg); }
         .legend__key { font-weight: 600; }
         .legend__item span:last-child { color: var(--text-2); }
+
+        /* --- Overview reasoning map --- */
+        .reasoning-map {
+            max-width: var(--maxw);
+            margin: 1.35rem auto 0;
+            border-top: 1px solid var(--hairline);
+            border-bottom: 1px solid var(--hairline);
+            padding: 1rem 0;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.2rem;
+        }
+        .reasoning-map__label {
+            display: flex; align-items: baseline; gap: 0.45rem; flex-wrap: wrap;
+            font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em;
+            text-transform: uppercase; color: var(--text-3); margin-bottom: 0.65rem;
+        }
+        .reasoning-map__count {
+            font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
+            letter-spacing: 0; text-transform: none; color: var(--text-3);
+        }
+        .reasoning-map__list { list-style: none; display: flex; flex-direction: column; gap: 0.48rem; }
+        .reasoning-map__item {
+            display: grid; grid-template-columns: 2.8rem 1fr; gap: 0.65rem;
+            text-decoration: none; color: var(--text); padding: 0.46rem 0;
+            border-radius: var(--radius-sm);
+        }
+        .reasoning-map__item:hover .reasoning-map__text { color: var(--accent); }
+        .reasoning-map__step {
+            font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent);
+            font-variant-numeric: tabular-nums; padding-top: 0.08rem;
+        }
+        .reasoning-map__text {
+            font-size: 0.88rem; line-height: 1.4; transition: color 0.16s ease;
+        }
+        .reasoning-map__detail {
+            display: block; margin-top: 0.15rem; color: var(--text-3);
+            font-size: 0.78rem; line-height: 1.35;
+        }
+        .reasoning-map__more {
+            margin-top: 0.7rem;
+            border-top: 1px solid var(--hairline);
+            padding-top: 0.65rem;
+        }
+        .reasoning-map__more summary {
+            cursor: pointer; list-style: none;
+            font-size: 0.78rem; color: var(--text-2);
+        }
+        .reasoning-map__more summary::-webkit-details-marker { display: none; }
+        .reasoning-map__more summary::before {
+            content: "+";
+            display: inline-block; width: 1.1rem;
+            font-family: var(--font-mono); color: var(--accent);
+        }
+        .reasoning-map__more[open] summary::before { content: "−"; }
+        .reasoning-map__more .reasoning-map__list { margin-top: 0.55rem; }
 
         /* =========================================================
            INLINE EVIDENCE
@@ -491,7 +633,7 @@
         .diff__file { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .diff__counts { flex-shrink: 0; }
         .diff__spacer { flex: 1; }
-        .diff__body { overflow: auto; max-height: 460px; }
+        .diff__body { overflow: auto; max-height: 460px; max-width: 100%; }
         .diff__body pre { margin: 0; padding: 0.6rem 0.7rem; font-size: 0.78rem; line-height: 1.5; }
         .diff__body .highlight pre { background: transparent !important; }
 
@@ -532,11 +674,23 @@
            accent), gotchas read in the warning hue, so the two scan apart. */
         .callouts { margin-top: 1.6rem; display: flex; flex-direction: column; gap: 0.7rem; }
         .callout {
+            scroll-margin-top: calc(var(--header-h) + 12px);
             border: 1px solid var(--hairline);
             border-radius: var(--radius-sm); padding: 0.85rem 1rem;
+            transition: border-color 0.18s var(--ease), background 0.18s var(--ease), box-shadow 0.18s var(--ease);
         }
         .callout--decision { background: var(--accent-glow); border-color: color-mix(in oklch, var(--accent) 30%, transparent); }
         .callout--gotcha { background: var(--del-bg); border-color: color-mix(in oklch, var(--del) 32%, transparent); }
+        .callout:target {
+            border-color: var(--accent);
+            background: var(--accent-glow);
+            box-shadow: 0 0 0 3px var(--accent-glow-2), var(--shadow-md);
+        }
+        .callout--gotcha:target {
+            border-color: var(--del);
+            background: var(--del-bg);
+            box-shadow: 0 0 0 3px var(--del-bg), var(--shadow-md);
+        }
         .callout__label {
             display: flex; align-items: center; gap: 0.4rem;
             font-size: 0.7rem; font-weight: 700; letter-spacing: 0.07em;
@@ -694,6 +848,10 @@
         /* =========================================================
            RESPONSIVE
            ========================================================= */
+        @media (max-width: 1180px) {
+            .overview .wrap { display: block; max-width: var(--maxw); }
+            .hero__summary { margin-top: 1.35rem; }
+        }
         @media (max-width: 860px) {
             .sidebar { transform: translateX(-100%); box-shadow: none; }
             .sidebar.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
@@ -746,7 +904,7 @@
         <ul class="toc" id="toc">
             <li><a class="toc-link" data-step="0" href="#overview"><span class="toc-num">0</span><span class="toc-text">Overview</span></a></li>
             {% for step in data.steps %}
-            <li><a class="toc-link" data-step="{{ loop.index }}" href="#{{ step.id }}"><span class="toc-num">{{ loop.index }}</span><span class="toc-text">{{ step.title }}</span></a></li>
+            <li{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}><a class="toc-link" data-step="{{ loop.index }}" href="#{{ step.id }}"><span class="toc-num">{{ loop.index }}</span><span class="toc-text">{{ step.title }}</span></a></li>
             {% endfor %}
         </ul>
     </nav>
@@ -758,6 +916,10 @@
             <span class="topbar__title">{{ data.overview.goal | default("Walkthrough") }}</span>
         </div>
         <div class="topbar__right">
+            <div class="view-seg" id="viewSeg" role="group" aria-label="Walkthrough view — end state or journey">
+                <button class="view-seg__opt" id="viewEndstate" type="button" data-view-opt="endstate" aria-pressed="true" title="Show just where the work landed">End state</button>
+                <button class="view-seg__opt" id="viewJourney" type="button" data-view-opt="journey" aria-pressed="false" title="Show how we got there">Journey</button>
+            </div>
             <div class="search-wrap"><input type="text" class="search" id="searchInput" placeholder="Search…" aria-label="Search steps"></div>
             <button class="tb-btn" id="expandAll" type="button">Expand all</button>
             <button class="tb-btn mode-toggle" id="modeToggle" type="button" aria-label="Toggle reading / present mode"><span id="modeLabel">Present</span></button>
@@ -784,18 +946,28 @@
         <section class="overview step" id="overview" data-step="0">
             <div class="wrap">
                 <div class="hero__eyebrow reveal">Walkthrough{% if data.meta and data.meta.scope %} &middot; {{ data.meta.scope }}{% endif %}</div>
+                {% if data.overview._end_state_goal %}
+                <h1 class="hero__title reveal" data-view-tag="end-state">{{ data.overview._end_state_goal }}</h1>
+                <h1 class="hero__title reveal" data-view-tag="journey">{{ data.overview.goal | default("") }}</h1>
+                {% else %}
                 <h1 class="hero__title reveal">{{ data.overview.goal | default("") }}</h1>
+                {% endif %}
+                {% if data.overview._end_state_summary %}
+                <ul class="hero__summary reveal" data-view-tag="end-state">
+                    {% for item in data.overview._end_state_summary %}<li>{{ item }}</li>{% endfor %}
+                </ul>
+                {% endif %}
                 {% if data.overview.summary %}
-                <ul class="hero__summary reveal">
+                <ul class="hero__summary reveal"{% if data.overview._end_state_summary %} data-view-tag="journey"{% endif %}>
                     {% for item in data.overview.summary %}<li>{{ item }}</li>{% endfor %}
                 </ul>
                 {% endif %}
                 <div class="stat-strip reveal">
-                    <div class="stat"><span class="stat__n">{{ data.steps | length }}</span><span class="stat__l">steps</span></div>
-                    <div class="stat"><span class="stat__n">{{ stats.files }}</span><span class="stat__l">files</span></div>
-                    <div class="stat"><span class="stat__n">{{ stats.commands }}</span><span class="stat__l">commands</span></div>
-                    <div class="stat"><span class="stat__n">{{ stats.decisions }}</span><span class="stat__l">decisions</span></div>
-                    <div class="stat"><span class="stat__n">{{ stats.fixes }}</span><span class="stat__l">fixes</span></div>
+                    <div class="stat"><span class="stat__n" data-stat="steps">{{ data.steps | length }}</span><span class="stat__l">steps</span></div>
+                    <div class="stat"><span class="stat__n" data-stat="files">{{ stats.files }}</span><span class="stat__l">files</span></div>
+                    <div class="stat"><span class="stat__n" data-stat="commands">{{ stats.commands }}</span><span class="stat__l">commands</span></div>
+                    <div class="stat"><span class="stat__n" data-stat="decisions">{{ stats.decisions }}</span><span class="stat__l">decisions</span></div>
+                    <div class="stat"><span class="stat__n" data-stat="fixes">{{ stats.fixes }}</span><span class="stat__l">fixes</span></div>
                     <div class="stat"><span class="stat__n" id="readTime">&ndash;</span><span class="stat__l">min read</span></div>
                 </div>
                 {% if stats.inferred or stats.speculative %}
@@ -806,18 +978,13 @@
                     <span class="legend__item legend__item--speculative"><span class="legend__swatch"></span><span class="legend__key">speculative</span><span>editorial call</span></span>
                 </div>
                 {% endif %}
-                {% if data.overview.key_file_refs %}
-                <div class="reveal">
-                    <div class="hero__files-label">Key files</div>
-                    <div class="chip-row">
-                        {% for ref in data.overview.key_file_refs %}
-                        <a class="key-file" href="{{ ref.cursor_href }}" data-abs-path="{{ ref.abs_path }}">{{ ref.label_path }}</a>
-                        {% endfor %}
-                    </div>
-                </div>
-                {% endif %}
             </div>
-            {% if data.overview._diagram_svg %}
+            {% if data.overview._diagram_image_light or data.overview._diagram_image_dark %}
+            <div class="overview-diagram reveal">
+              {% if data.overview._diagram_image_dark %}<img class="wt-diagram-img wt-diagram-dark" src="{{ data.overview._diagram_image_dark }}" alt="Architecture overview diagram">{% endif %}
+              {% if data.overview._diagram_image_light %}<img class="wt-diagram-img wt-diagram-light" src="{{ data.overview._diagram_image_light }}" alt="Architecture overview diagram">{% endif %}
+            </div>
+            {% elif data.overview._diagram_svg %}
             <div class="overview-diagram reveal">{{ data.overview._diagram_svg | safe }}</div>
             {% elif data.overview.diagram_mermaid %}
             <div class="overview-diagram reveal"><pre>{{ data.overview.diagram_mermaid }}</pre></div>
@@ -825,21 +992,115 @@
             {% if data.steps %}
             <div class="jump-grid reveal">
                 {% for step in data.steps %}
-                <a class="jump-card" href="#{{ step.id }}" data-step="{{ loop.index }}">
+                <a class="jump-card" href="#{{ step.id }}" data-step="{{ loop.index }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}>
                     <span class="jump-card__n">{{ "%02d"|format(loop.index) }}</span>
                     <span class="jump-card__body">
                         <span class="jump-card__t">{{ step.title }}</span>
-                        {% if step.takeaway %}<span class="jump-card__d">{{ step.takeaway }}</span>{% endif %}
+                        {% if step._overview_teaser %}<span class="jump-card__d">{{ step._overview_teaser }}</span>{% endif %}
+                        {% set decision_count = step.decisions | default([]) | length %}
+                        {% set gotcha_count = step.errors_encountered | default([]) | length %}
+                        {% if decision_count or gotcha_count %}
+                        <span class="jump-card__meta" aria-label="{{ decision_count }} decisions, {{ gotcha_count }} gotchas">
+                            {% if decision_count %}<span class="jump-card__badge jump-card__badge--decision">{{ decision_count }} decision{% if decision_count != 1 %}s{% endif %}</span>{% endif %}
+                            {% if gotcha_count %}<span class="jump-card__badge jump-card__badge--gotcha">{{ gotcha_count }} gotcha{% if gotcha_count != 1 %}s{% endif %}</span>{% endif %}
+                        </span>
+                        {% endif %}
                     </span>
                 </a>
                 {% endfor %}
+            </div>
+            {% endif %}
+            {% if data.overview.key_file_refs %}
+            <div class="overview-files reveal">
+                <div class="hero__files-label">Key files</div>
+                <div class="chip-row">
+                    {% for ref in data.overview.key_file_refs %}
+                    <a class="key-file" href="{{ ref.cursor_href }}" data-abs-path="{{ ref.abs_path }}">{{ ref.label_path }}</a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if data.overview._decision_index or data.overview._gotcha_index %}
+            <div class="reasoning-map reveal" aria-label="Reasoning map">
+                {% if data.overview._decision_index %}
+                <div class="reasoning-map__group">
+                    <div class="reasoning-map__label">Decision map{% if data.overview._decision_total and data.overview._decision_total > (data.overview._decision_index | length) %}<span class="reasoning-map__count">{{ data.overview._decision_index | length }} of {{ data.overview._decision_total }}</span>{% endif %}</div>
+                    <ul class="reasoning-map__list">
+                        {% for item in data.overview._decision_index %}
+                        <li{% if item.view in ['journey','end-state'] %} data-view-tag="{{ item.view }}"{% endif %}>
+                            <a class="reasoning-map__item" href="#{{ item.target_id | default(item.step_id) }}">
+                                <span class="reasoning-map__step">{{ "%02d"|format(item.step_number) }}</span>
+                                    <span class="reasoning-map__body">
+                                        <span class="reasoning-map__text">{{ item.text }}</span>
+                                        {% if item.detail %}<span class="reasoning-map__detail">{{ item.detail }}</span>{% endif %}
+                                    </span>
+                                </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% if data.overview._decision_overflow %}
+                    <details class="reasoning-map__more">
+                        <summary>Show {{ data.overview._decision_overflow | length }} more decisions</summary>
+                        <ul class="reasoning-map__list">
+                            {% for item in data.overview._decision_overflow %}
+                            <li{% if item.view in ['journey','end-state'] %} data-view-tag="{{ item.view }}"{% endif %}>
+                                <a class="reasoning-map__item" href="#{{ item.target_id | default(item.step_id) }}">
+                                    <span class="reasoning-map__step">{{ "%02d"|format(item.step_number) }}</span>
+                                    <span class="reasoning-map__body">
+                                        <span class="reasoning-map__text">{{ item.text }}</span>
+                                        {% if item.detail %}<span class="reasoning-map__detail">{{ item.detail }}</span>{% endif %}
+                                    </span>
+                                </a>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% if data.overview._gotcha_index %}
+                <div class="reasoning-map__group">
+                    <div class="reasoning-map__label">Gotcha map{% if data.overview._gotcha_total and data.overview._gotcha_total > (data.overview._gotcha_index | length) %}<span class="reasoning-map__count">{{ data.overview._gotcha_index | length }} of {{ data.overview._gotcha_total }}</span>{% endif %}</div>
+                    <ul class="reasoning-map__list">
+                        {% for item in data.overview._gotcha_index %}
+                        <li{% if item.view in ['journey','end-state'] %} data-view-tag="{{ item.view }}"{% endif %}>
+                            <a class="reasoning-map__item" href="#{{ item.target_id | default(item.step_id) }}">
+                                <span class="reasoning-map__step">{{ "%02d"|format(item.step_number) }}</span>
+                                <span class="reasoning-map__body">
+                                    <span class="reasoning-map__text">{{ item.text }}</span>
+                                    {% if item.detail %}<span class="reasoning-map__detail">{{ item.detail }}</span>{% endif %}
+                                </span>
+                            </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% if data.overview._gotcha_overflow %}
+                    <details class="reasoning-map__more">
+                        <summary>Show {{ data.overview._gotcha_overflow | length }} more gotchas</summary>
+                        <ul class="reasoning-map__list">
+                            {% for item in data.overview._gotcha_overflow %}
+                            <li{% if item.view in ['journey','end-state'] %} data-view-tag="{{ item.view }}"{% endif %}>
+                                <a class="reasoning-map__item" href="#{{ item.target_id | default(item.step_id) }}">
+                                    <span class="reasoning-map__step">{{ "%02d"|format(item.step_number) }}</span>
+                                    <span class="reasoning-map__body">
+                                        <span class="reasoning-map__text">{{ item.text }}</span>
+                                        {% if item.detail %}<span class="reasoning-map__detail">{{ item.detail }}</span>{% endif %}
+                                    </span>
+                                </a>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                    {% endif %}
+                </div>
+                {% endif %}
             </div>
             {% endif %}
             <hr class="section-rule">
         </section>
 
         {% for step in data.steps %}
-        <article class="step" id="{{ step.id }}" data-step="{{ loop.index }}" data-step-id="{{ step.id }}">
+        <article class="step" id="{{ step.id }}" data-step="{{ loop.index }}" data-step-id="{{ step.id }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}>
             <div class="wrap">
                 <div class="step-eyebrow reveal">
                     <span>Step {{ loop.index }}</span>
@@ -848,6 +1109,17 @@
                 <h2 class="step-title reveal">{{ step.title }}</h2>
                 {% if step.takeaway %}<p class="step-takeaway reveal">{{ step.takeaway }}</p>{% endif %}
                 {% if step.intent %}<p class="step-intent reveal">{{ step.intent }}</p>{% endif %}
+
+                {% if step._diagram_image or step._diagram_image_light or step._diagram_image_dark %}
+                <figure class="step-diagram reveal">
+                  {% if step._diagram_image %}<img class="step-diagram__img" src="{{ step._diagram_image }}" alt="{{ step._diagram_caption | default('Architecture diagram for this step') }}">
+                  {% else %}
+                  {% if step._diagram_image_dark %}<img class="wt-diagram-img wt-diagram-dark" src="{{ step._diagram_image_dark }}" alt="{{ step._diagram_caption | default('Architecture diagram for this step') }}">{% endif %}
+                  {% if step._diagram_image_light %}<img class="wt-diagram-img wt-diagram-light" src="{{ step._diagram_image_light }}" alt="{{ step._diagram_caption | default('Architecture diagram for this step') }}">{% endif %}
+                  {% endif %}
+                  {% if step._diagram_caption %}<figcaption class="step-diagram__cap">{{ step._diagram_caption }}</figcaption>{% endif %}
+                </figure>
+                {% endif %}
 
                 {% if step._file_refs %}
                 <div class="files reveal">
@@ -861,18 +1133,18 @@
                 {% endif %}
 
                 {% if step.claims %}
-                <div class="claims reveal">
+                <div class="claims reveal" data-view-collapsible>
                     {% for claim in step.claims %}
                     {% set conf = claim.confidence | default('grounded') %}
-                    <p class="claim claim--{{ conf }}">{% if conf in ['inferred','speculative'] %}<span class="pill pill--{{ conf }}">{{ conf }}</span>{% endif %}{{ claim.text }}</p>
+                    <p class="claim claim--{{ conf }}"{% if claim.mode in ['journey','end-state'] %} data-view-tag="{{ claim.mode }}"{% endif %}>{% if conf in ['inferred','speculative'] %}<span class="pill pill--{{ conf }}">{{ conf }}</span>{% endif %}{{ claim.text }}</p>
                     {% endfor %}
                 </div>
                 {% endif %}
 
                 {% if step.decisions or step.errors_encountered %}
-                <div class="callouts reveal">
+                <div class="callouts reveal" data-view-collapsible>
                     {% for d in step.decisions | default([]) %}
-                    <div class="callout callout--decision">
+                    <div class="callout callout--decision" id="{{ step.id }}-decision-{{ loop.index }}"{% if d.mode in ['journey','end-state'] %} data-view-tag="{{ d.mode }}"{% endif %}>
                         <div class="callout__label">&#9670; Decision</div>
                         <p class="callout__title">{{ d.decision }}</p>
                         {% if d.rationale %}<p class="callout__body">{{ d.rationale }}</p>{% endif %}
@@ -882,7 +1154,8 @@
                     </div>
                     {% endfor %}
                     {% for err in step.errors_encountered | default([]) %}
-                    <div class="callout callout--gotcha">
+                    {% set gview = err.mode if err.mode in ['both','journey','end-state'] else 'journey' %}
+                    <div class="callout callout--gotcha" id="{{ step.id }}-gotcha-{{ loop.index }}"{% if gview != 'both' %} data-view-tag="{{ gview }}"{% endif %}>
                         <div class="callout__label">&#9888; Gotcha</div>
                         <p class="callout__title">{{ err.error }}</p>
                         {% if err.resolution %}<p class="callout__body">{{ err.resolution }}</p>{% endif %}
@@ -950,21 +1223,29 @@
             <section class="slide slide--title active" data-slide="0">
                 <div class="slide__inner">
                     <div class="slide__eyebrow">Walkthrough{% if data.meta and data.meta.scope %} &middot; {{ data.meta.scope }}{% endif %}</div>
+                    {% if data.overview._end_state_goal %}
+                    <h1 class="slide__title slide__title--hero" data-view-tag="end-state">{{ data.overview._end_state_goal }}</h1>
+                    <h1 class="slide__title slide__title--hero" data-view-tag="journey">{{ data.overview.goal | default("") }}</h1>
+                    {% else %}
                     <h1 class="slide__title slide__title--hero">{{ data.overview.goal | default("") }}</h1>
+                    {% endif %}
+                    {% if data.overview._end_state_summary %}
+                    <ul class="slide__summary" data-view-tag="end-state">{% for item in data.overview._end_state_summary[:3] %}<li>{{ item }}</li>{% endfor %}</ul>
+                    {% endif %}
                     {% if data.overview.summary %}
-                    <ul class="slide__summary">{% for item in data.overview.summary[:3] %}<li>{{ item }}</li>{% endfor %}</ul>
+                    <ul class="slide__summary"{% if data.overview._end_state_summary %} data-view-tag="journey"{% endif %}>{% for item in data.overview.summary[:3] %}<li>{{ item }}</li>{% endfor %}</ul>
                     {% endif %}
                     <div class="slide__stats">
-                        <div><div class="slide__stat-n">{{ data.steps | length }}</div><div class="slide__stat-l">steps</div></div>
-                        <div><div class="slide__stat-n">{{ stats.files }}</div><div class="slide__stat-l">files</div></div>
-                        <div><div class="slide__stat-n">{{ stats.commands }}</div><div class="slide__stat-l">commands</div></div>
-                        <div><div class="slide__stat-n">{{ stats.decisions }}</div><div class="slide__stat-l">decisions</div></div>
-                        <div><div class="slide__stat-n">{{ stats.fixes }}</div><div class="slide__stat-l">fixes</div></div>
+                        <div><div class="slide__stat-n" data-stat="steps">{{ data.steps | length }}</div><div class="slide__stat-l">steps</div></div>
+                        <div><div class="slide__stat-n" data-stat="files">{{ stats.files }}</div><div class="slide__stat-l">files</div></div>
+                        <div><div class="slide__stat-n" data-stat="commands">{{ stats.commands }}</div><div class="slide__stat-l">commands</div></div>
+                        <div><div class="slide__stat-n" data-stat="decisions">{{ stats.decisions }}</div><div class="slide__stat-l">decisions</div></div>
+                        <div><div class="slide__stat-n" data-stat="fixes">{{ stats.fixes }}</div><div class="slide__stat-l">fixes</div></div>
                     </div>
                 </div>
             </section>
             {% for step in data.steps %}
-            <section class="slide" data-slide="{{ loop.index }}">
+            <section class="slide" data-slide="{{ loop.index }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}>
                 <div class="slide__inner">
                     <div class="slide__eyebrow">Step {{ loop.index }} / {{ data.steps | length }}</div>
                     <h2 class="slide__title">{{ step.title }}</h2>
@@ -973,7 +1254,7 @@
                     <div class="slide__claims">
                         {% for claim in step.claims[:4] %}
                         {% set conf = claim.confidence | default('grounded') %}
-                        <p class="slide__claim slide__claim--{{ conf }}">{% if conf in ['inferred','speculative'] %}<span class="pill pill--{{ conf }}">{{ conf }}</span>{% endif %}{{ claim.text }}</p>
+                        <p class="slide__claim slide__claim--{{ conf }}"{% if claim.mode in ['journey','end-state'] %} data-view-tag="{{ claim.mode }}"{% endif %}>{% if conf in ['inferred','speculative'] %}<span class="pill pill--{{ conf }}">{{ conf }}</span>{% endif %}{{ claim.text }}</p>
                         {% endfor %}
                         {% if step.claims | length > 4 %}<p class="slide__more">+{{ step.claims | length - 4 }} more &mdash; see Reading</p>{% endif %}
                     </div>
@@ -1070,7 +1351,9 @@
         }
 
         getVisibleSteps() {
-            return this.steps.filter(step => step.style.display !== 'none');
+            // Respect both search (inline display:none) and the view filter (stylesheet
+            // display:none via [data-view-tag]); computed style reflects either.
+            return this.steps.filter(step => getComputedStyle(step).display !== 'none');
         }
 
         goRelative(delta) {
@@ -1177,7 +1460,7 @@
             this.slides = Array.from(this.stage.querySelectorAll('.slide'));
             this.total = this.slides.length;
             this.index = 0;
-            document.getElementById('deckTotal').textContent = this.total;
+            this.updateCounter();
 
             document.getElementById('deckPrev').addEventListener('click', () => this.prev());
             document.getElementById('deckNext').addEventListener('click', () => this.next());
@@ -1201,21 +1484,58 @@
             this.stage.style.transform = 'translate(-50%, -50%) scale(' + s + ')';
         }
 
+        visibleSlides() {
+            return this.slides.filter(s => getComputedStyle(s).display !== 'none');
+        }
+
+        updateCounter() {
+            const vis = this.visibleSlides();
+            const pos = vis.indexOf(this.slides[this.index]);
+            const idxEl = document.getElementById('deckIndex');
+            const totEl = document.getElementById('deckTotal');
+            if (idxEl) idxEl.textContent = (pos >= 0 ? pos : 0) + 1;
+            if (totEl) totEl.textContent = vis.length;
+        }
+
         goToSlide(i) {
-            this.index = Math.max(0, Math.min(this.total - 1, i));
-            this.slides.forEach((sl, idx) => sl.classList.toggle('active', idx === this.index));
-            document.getElementById('deckIndex').textContent = this.index + 1;
+            let idx = Math.max(0, Math.min(this.total - 1, i));
+            // The view filter can hide slides; snap to the nearest visible one.
+            if (this.slides[idx] && getComputedStyle(this.slides[idx]).display === 'none') {
+                const vis = this.visibleSlides();
+                if (!vis.length) return;
+                const fwd = vis.find(s => this.slides.indexOf(s) >= idx);
+                idx = this.slides.indexOf(fwd || vis[vis.length - 1]);
+            }
+            this.index = idx;
+            this.slides.forEach((sl, k) => sl.classList.toggle('active', k === this.index));
+            this.updateCounter();
             this.app.reading.setCurrentStep(this.index);
             if (this.isActive()) this.scale();
         }
 
-        next() { this.goToSlide(this.index + 1); }
-        prev() { this.goToSlide(this.index - 1); }
+        next() {
+            const vis = this.visibleSlides();
+            const cur = vis.indexOf(this.slides[this.index]);
+            const nxt = vis[Math.min(vis.length - 1, (cur < 0 ? 0 : cur) + 1)];
+            if (nxt) this.goToSlide(this.slides.indexOf(nxt));
+        }
+        prev() {
+            const vis = this.visibleSlides();
+            const cur = vis.indexOf(this.slides[this.index]);
+            const prv = vis[Math.max(0, (cur < 0 ? 0 : cur) - 1)];
+            if (prv) this.goToSlide(this.slides.indexOf(prv));
+        }
 
         activate(i) {
             if (typeof i === 'number') this.index = Math.max(0, Math.min(this.total - 1, i));
             this.goToSlide(this.index);
             this.scale();
+        }
+
+        /* Re-sync after a view change: the visible-slide set may have shrunk/grown. */
+        refresh() {
+            this.goToSlide(this.index);
+            this.updateCounter();
         }
 
         initTouch() {
@@ -1238,6 +1558,7 @@
 
             this.initTheme();
             this.initMode();
+            this.initView();
             this.initSidebar();
             this.initTOC();
             this.initSearch();
@@ -1289,6 +1610,94 @@
             } else if (fromUser) {
                 this.reading.goToStep(this.deck.index || 0);
             }
+        }
+
+        /* --- View (end state / journey) ---
+           End State shows just where the work landed; Journey shows how we got
+           there. Content is tagged data-view-tag="journey|end-state"; `both`
+           (untagged) shows in either. The reader's choice is remembered. --- */
+        normView(v, def) {
+            const t = String(v == null ? '' : v).trim().toLowerCase().replace(/[ _]/g, '-');
+            if (t === 'both' || t === 'journey' || t === 'end-state') return t;
+            if (t === 'endstate' || t === 'end') return 'end-state';
+            return def;
+        }
+        inView(tag, view) {
+            const v = view || document.documentElement.getAttribute('data-view') || 'endstate';
+            const t = this.normView(tag, 'both');
+            if (t === 'both') return true;
+            return v === 'journey' ? t !== 'end-state' : t !== 'journey';
+        }
+        initView() {
+            const saved = localStorage.getItem('walkthrough-view');
+            this.viewOpts = Array.from(document.querySelectorAll('.view-seg__opt'));
+            this.viewOpts.forEach(btn => {
+                btn.addEventListener('click', () => this.setView(btn.dataset.viewOpt, true));
+            });
+            this.setView(saved === 'journey' ? 'journey' : 'endstate', false);
+        }
+        setView(view, fromUser) {
+            view = view === 'journey' ? 'journey' : 'endstate';
+            document.documentElement.setAttribute('data-view', view);
+            localStorage.setItem('walkthrough-view', view);
+            this.viewOpts.forEach(btn =>
+                btn.setAttribute('aria-pressed', btn.dataset.viewOpt === view ? 'true' : 'false'));
+            this.applyViewVisibility();
+            this.recomputeStats();
+            this.reading.computeReadTime();
+            if (document.documentElement.getAttribute('data-mode') !== 'present') {
+                const visible = this.reading.getVisibleSteps();
+                const curShown = visible.some(s => parseInt(s.dataset.step, 10) === this.reading.currentStep);
+                if (fromUser && visible.length && !curShown) {
+                    this.reading.scrollToStep(visible[0], { updateHash: false });
+                } else {
+                    this.reading.setCurrentStep(this.reading.currentStep);
+                }
+            }
+            this.deck.refresh();
+        }
+        /* Collapse container blocks (callouts, claims, the reasoning map) that have
+           no content left in the active view, so the page never shows an empty band. */
+        applyViewVisibility() {
+            const view = document.documentElement.getAttribute('data-view');
+            document.querySelectorAll('[data-view-collapsible]').forEach(box => {
+                const tagged = Array.from(box.querySelectorAll('[data-view-tag]'));
+                const hasUntagged = Array.from(box.children).some(c => !c.hasAttribute('data-view-tag'));
+                const anyTaggedIn = tagged.some(el => this.inView(el.getAttribute('data-view-tag'), view));
+                box.style.display = (tagged.length && !anyTaggedIn && !hasUntagged) ? 'none' : '';
+            });
+            document.querySelectorAll('.reasoning-map__group').forEach(group => {
+                const items = Array.from(group.querySelectorAll('.reasoning-map__item'));
+                const anyIn = items.some(a => {
+                    const li = a.closest('li');
+                    return this.inView(li ? li.getAttribute('data-view-tag') : null, view);
+                });
+                group.style.display = anyIn ? '' : 'none';
+            });
+            const map = document.querySelector('.reasoning-map');
+            if (map) {
+                const anyGroup = Array.from(map.querySelectorAll('.reasoning-map__group'))
+                    .some(g => g.style.display !== 'none');
+                map.style.display = anyGroup ? '' : 'none';
+            }
+        }
+        /* Recompute the overview/deck stat counts so they reflect the active view. */
+        recomputeStats() {
+            if (typeof DATA === 'undefined' || !DATA || !DATA.steps) return;
+            const view = document.documentElement.getAttribute('data-view');
+            let steps = 0, files = 0, commands = 0, decisions = 0, fixes = 0;
+            DATA.steps.forEach(s => {
+                if (!this.inView(this.normView(s.mode, 'both'), view)) return;
+                steps++;
+                const ev = s.evidence || {};
+                files += (s._file_refs ? s._file_refs.length : ((ev.files_changed || []).length));
+                commands += (ev.commands || []).length;
+                (s.decisions || []).forEach(d => { if (this.inView(this.normView(d.mode, 'both'), view)) decisions++; });
+                (s.errors_encountered || []).forEach(e => { if (this.inView(this.normView(e.mode, 'journey'), view)) fixes++; });
+            });
+            const set = (k, val) => document.querySelectorAll('[data-stat="' + k + '"]').forEach(el => { el.textContent = val; });
+            set('steps', steps); set('files', files); set('commands', commands);
+            set('decisions', decisions); set('fixes', fixes);
         }
 
         /* --- Sidebar --- */
@@ -1443,7 +1852,7 @@
 
         /* --- Media galleries --- */
         initMediaGalleries() {
-            if (!window.DATA || !DATA.steps) return;
+            if (typeof DATA === 'undefined' || !DATA || !DATA.steps) return;
             DATA.steps.forEach(step => {
                 const items = (step.evidence && step.evidence.media) || [];
                 if (!items.length) return;
@@ -1498,6 +1907,19 @@
             document.getElementById('lightboxNext').addEventListener('click', () => this.lightboxNav(1));
             this.lightbox.addEventListener('click', (e) => { if (e.target === this.lightbox) this.closeLightbox(); });
             document.addEventListener('click', (e) => {
+                // Architecture diagrams (overview hero + per-step figures) → single-image lightbox.
+                if (e.target.tagName === 'IMG' && e.target.closest('.overview-diagram, .step-diagram')) {
+                    const img = e.target;
+                    const full = img.currentSrc || img.getAttribute('src');
+                    if (!full) return;
+                    const fig = img.closest('figure');
+                    const cap = fig ? fig.querySelector('.step-diagram__cap') : null;
+                    const caption = cap ? cap.textContent : (img.getAttribute('alt') || '');
+                    this.lightboxItems = [{ src: full, caption: caption }];
+                    this.lightboxIndex = 0;
+                    this.openLightbox();
+                    return;
+                }
                 const thumb = e.target.closest('.media-thumb');
                 if (!thumb) return;
                 const full = thumb.getAttribute('data-full-src');

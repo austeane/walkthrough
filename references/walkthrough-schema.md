@@ -67,7 +67,10 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
     "src/middleware/auth.ts",
     "src/routes/api.ts"
   ],
-  "diagram_mermaid": "graph TD\n  A[Request] --> B[Auth Middleware]\n  B --> C{Valid JWT?}\n  C -->|Yes| D[Route Handler]\n  C -->|No| E[401 Response]"
+  "diagram_image": {
+    "light": "out/diagrams/auth.light.png",
+    "dark": "out/diagrams/auth.dark.png"
+  }
 }
 ```
 
@@ -76,7 +79,18 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
 | `goal` | string | One-sentence description of what was accomplished |
 | `summary` | array of strings | 3-7 bullet points covering the key outcomes |
 | `key_files` | array of strings | Most important files that were created or modified |
-| `diagram_mermaid` | string | Optional Mermaid/source diagram text showing architecture or flow. The current HTML viewer renders it as inert preformatted text for offline safety. |
+| `diagram_image` | string or object | Preferred overview diagram input. Use a string path for one exported image, or `{ "light": "...", "dark": "..." }` for theme-matched LikeC4 exports. Paths resolve against `meta.repo_root`, then the walkthrough JSON directory, and are embedded as data URIs during rendering. |
+| `diagram_mermaid` | string | Optional fallback source diagram text showing architecture or flow. Prefer LikeC4 image exports for new walkthroughs; the renderer uses Mermaid only when no `diagram_image` is present, and if local Mermaid rendering is unavailable, the viewer shows inert preformatted text. |
+| `end_state` | object | Optional End State framing: `{ "goal": "...", "summary": [...] }`. Shown in the viewer's End State view; `goal`/`summary` remain the Journey framing and the fallback. See [View modes](#view-modes). |
+
+The renderer also derives overview-only `_decision_index`, `_gotcha_index`,
+overflow lists, `_decision_total`, and `_gotcha_total` fields from per-step
+`decisions` and `errors_encountered`. The visible overview map samples across
+steps before taking second items from any one step; overflow stays available
+behind collapsed "show more" controls, and each item links to the matching
+decision/gotcha callout. Authors should not write those private fields directly;
+make the first decision/gotcha in each step the one a scanning teammate should
+see first.
 
 ## Steps
 
@@ -103,8 +117,9 @@ Each step represents a logical unit of work in the walkthrough. Steps are ordere
 | `intent` | string | What the agent was trying to accomplish and why |
 | `claims` | array | Individual narrative statements with confidence levels |
 | `evidence` | object | Grounded artifacts from the session logs |
-| `decisions` | array | Key decisions made during this step |
-| `errors_encountered` | array | Problems hit and how they were resolved |
+| `decisions` | array | Key decisions made during this step. Canonical entries are objects with `decision`, optional `rationale`, and optional `alternatives_considered`; the renderer tolerates legacy string entries. |
+| `errors_encountered` | array | Problems hit and how they were resolved. Canonical entries are objects with `error` and optional `resolution`; the renderer tolerates legacy string entries. |
+| `mode` | string | Optional view tag: `"end-state"`, `"journey"`, or `"both"` (default). Controls whether the step appears in the viewer's End State view, Journey view, or both. See [View modes](#view-modes). |
 
 ### The altitude ladder
 
@@ -123,7 +138,9 @@ whatever depth they need:
    collapsed `<details>` with a one-line scent label, expandable on demand.
 
 `takeaway` is optional in the renderer (older walkthroughs omit it), but the
-editorial step should always write one.
+editorial step should always write one. When it is missing, overview jump cards
+fall back to `intent` or the first claim so old drafts remain navigable; the
+quality gate still fails final artifacts that omit `takeaway`.
 
 ### Claims
 
@@ -148,6 +165,7 @@ Claims are the narrative content of each step, broken into individual statements
 | `text` | string | The claim statement |
 | `confidence` | string | Confidence level (see below) |
 | `source_refs` | array | References to source log lines |
+| `mode` | string | Optional view tag (`end-state` / `journey` / `both`, default `both`). Lets a `both` step keep its end-state claims while hiding its "how we got here" claims in the End State view. See [View modes](#view-modes). |
 
 #### Confidence Levels
 
@@ -267,6 +285,70 @@ Evidence fields contain artifacts extracted deterministically from session logs 
 | `error` | string | Description of the problem |
 | `resolution` | string | How it was fixed |
 | `evidence_ref` | object | Reference to the relevant log section |
+
+## View modes
+
+The HTML viewer has a header toggle with two reader views:
+
+- **End State** — just where the work landed: the final architecture and result.
+- **Journey** — how we got there: the chronology, the pivots, the dead-ends.
+
+The reader's choice is remembered (localStorage); the viewer opens in **End State**
+on a first visit. Every step, claim, decision, and gotcha may carry an optional
+`mode`:
+
+| Value | Shows in End State | Shows in Journey |
+|-------|:---:|:---:|
+| `both` (default for steps/claims/decisions) | ✓ | ✓ |
+| `end-state` | ✓ | — |
+| `journey` (default for gotchas) | — | ✓ |
+
+Defaults are chosen so an un-tagged walkthrough still behaves sensibly:
+
+- **Steps / claims / decisions** default to `both`.
+- **`errors_encountered` (gotchas)** default to `journey` — a problem hit-and-fixed
+  is by nature "how we got here". Tag a gotcha `"both"` (or `"end-state"`) when it is
+  really a *live, current* constraint (e.g. "pinned to Node 22 because newer Node
+  segfaults"), so it survives into the End State view.
+- **`alternatives_considered`** on a decision are always hidden in End State — the
+  forks not taken are journey detail. The decision and its rationale stay visible.
+- A step pinned to one view forces all of its items into that view.
+
+```json
+{
+  "id": "step-6",
+  "title": "Picking the sandbox engine",
+  "mode": "both",
+  "claims": [
+    { "text": "isolated-vm enforces a hard memory limit.", "confidence": "grounded" },
+    { "text": "A QuickJS-WASM spike went red first.", "confidence": "grounded", "mode": "journey" }
+  ],
+  "errors_encountered": [
+    { "error": "Segfaults on Node 25; pinned to Node 22.", "resolution": "...", "mode": "both" }
+  ]
+}
+```
+
+### Overview framing per view
+
+`overview.goal` and `overview.summary` are the **journey** framing (and the fallback
+when no end-state framing is supplied). Add `overview.end_state` to give the End State
+view its own, destination-first framing:
+
+```json
+"overview": {
+  "goal": "Decide whether to standardize on X — by walking the path that led there.",
+  "summary": ["We started on …", "We then …", "Finally we …"],
+  "end_state": {
+    "goal": "X is two services stamped from one multi-tenant engine.",
+    "summary": ["Two Cloud Run services …", "One engine, per-tenant profiles …"]
+  }
+}
+```
+
+When `end_state` is present the viewer renders both framings (hero + deck title) and
+shows the one matching the active view; when absent, the journey framing is used in
+both. The overview stat counts and reasoning maps recompute to the active view.
 
 ## Evidence Rules
 

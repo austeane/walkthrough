@@ -306,14 +306,35 @@ Read the walkthrough schema: `references/walkthrough-schema.md`
 - Every step needs a `takeaway`: one declarative outcome sentence stating what changed and its net effect (distinct from the `title` topic and the `intent` why). This is the "broad shape" a reader scans first; the rendered page leads with it. **Skim test**: read the `takeaway` lines alone, top to bottom — they should form a complete, coherent summary of the whole session. If they don't, re-edit the steps until they do.
 - Every step needs at least one grounded claim with source_refs.
 - The overview.goal should be one sentence a stranger could understand.
-- Include a Mermaid/source diagram in overview if the work involved multiple interacting components.
-- If the diagram is too tiny to read (for example, only a few nodes in one line), remove it or expand it before rendering.
-- Decisions and errors_encountered are high-value reasoning — the renderer shows them in the always-visible narrative band (not inside the collapsed evidence), so write them as standalone insights a scanning reader should catch.
+- Prefer a LikeC4 diagram export for multi-component work. Put the exported image path in `overview.diagram_image` (string for one image, or `{ "light": "...", "dark": "..." }` for theme-matched exports). Resolve paths relative to `meta.repo_root` first, then the walkthrough JSON directory. Mermaid/source diagrams are fallback-only via `overview.diagram_mermaid`.
+- If the diagram is too tiny to read (for example, only a few nodes in one line), remove it or expand it before rendering. A real LikeC4 view is usually better than inventing a small Mermaid diagram.
+- Decisions and errors_encountered are high-value reasoning — the renderer shows them in the overview reasoning map and in the always-visible step narrative band (not inside the collapsed evidence), so write them as standalone insights a scanning reader should catch. Put the most important decision/gotcha first in each step; the overview map samples across steps before taking second items from any one step, hides overflow behind a collapsed "show more" control, and links directly to the matching callout.
 - The rendered step is an altitude ladder: `title` → `takeaway` (gist) → `intent` (why) → claims + decisions + gotchas (visible narrative) → `evidence` diffs/commands/screenshots (collapsed proof, expand on demand). Put each fact at the altitude that matches how much a reader needs it.
+
+**View modes (end-state vs journey)**: the viewer has a header toggle between an **End State** view (just where the work landed) and a **Journey** view (how we got there). Tag content with a `mode` so each view reads well — this is an editorial decision, like step grouping:
+
+- Add `"mode": "journey"` to whole steps that are pure path/process (the thing you replaced, an ideation detour, a deploy chore, a throwaway experiment) — they vanish in End State.
+- Add `"mode": "end-state"` to a step that is a redundant recap in the full story (e.g. an "at a glance" summary that journey readers don't need up front).
+- Leave architecture/result steps as `both` (the default) — they belong in both views.
+- For a **mixed** step (a pivot whose *outcome* is the end state but whose *struggle* is the journey), keep the step `both` and tag the individual `claims` — `"mode": "journey"` on the "how we struggled" claims, `both` on the claims that describe the final shape.
+- `decisions` default to `both`; their `alternatives_considered` are auto-hidden in End State (forks-not-taken are journey detail). `errors_encountered` (gotchas) default to `journey`; tag a gotcha `"mode": "both"` only when it is a *live, current* constraint (e.g. a Node version pin), so it survives into End State.
+- Write `overview.end_state = { goal, summary }` so the overview hero/deck title has a destination-first framing in End State; `overview.goal`/`summary` stay the journey framing. Apply the **skim test** to *both* framings: the End State `summary` should read as a coherent description of the final system; the journey `takeaway` lines should read as the coherent story.
+
+See `references/walkthrough-schema.md` → *View modes* for the full table and defaults.
 
 For large sessions (15+ draft steps), use Opus (`model: "opus"`) for editorial assembly — it handles complex compression (e.g. 276→15 steps) significantly better than Sonnet.
 
 Write the result to `out/walkthrough.json`. Validate it has all required fields per the schema. Include `meta.repo_root` set to the project's absolute path so cursor:// and vscode:// editor links work correctly in the rendered HTML.
+
+Run the finished-walkthrough quality gate before rendering or sharing:
+
+```bash
+python3 scripts/validate_walkthrough_quality.py \
+  --input out/walkthrough.json \
+  --max-steps 20
+```
+
+If this fails, the artifact is still a draft. Re-edit instead of rendering a final HTML. The common failures are exactly the ones readers notice: `chunk-001: N events` titles, missing takeaways, no grounded claims, too many uncompressed steps, or non-reader-facing files like `/tmp`, `.env`, worklogs, or `~/.claude/plans` in overview key files. `merge_summaries --allow-fallback` is acceptable for an intermediate draft, but fallback chunk summaries must not survive into the final walkthrough.
 
 > **Gotcha — `out/` is a single hardcoded namespace.** The pipeline reads and writes `out/walkthrough.json`, `out/chunks/`, `out/summaries/`, etc. with no per-walkthrough subfolder. Running a *second* walkthrough (e.g. a meta walkthrough, or a different scope in the same repo) silently clobbers the first — and in this repo `out/walkthrough.json` is also the test fixture. When producing an additional walkthrough, isolate it in a subdirectory (e.g. `out/<name>/...` for every stage and `--output out/<name>/walkthrough.html`) so you don't overwrite an existing one or the test sample.
 
@@ -490,6 +511,7 @@ All scripts are available as `uv run` commands via entry points (e.g., `uv run w
 | `chunk_events.py` | `walkthrough-chunk` | Split for LLM context | Projected JSONL | Chunks + manifest |
 | `batch_pipeline.py` | `walkthrough-batch` | Batch strip+normalize+project+chunk | sessions.json | projected.jsonl + chunks/ + cards/ |
 | `merge_summaries.py` | `walkthrough-merge` | Draft walkthrough from summaries | Manifest + summaries | draft-walkthrough.json |
+| `validate_walkthrough_quality.py` | `walkthrough-quality` | Final editorial quality gate | walkthrough.json | pass/fail report |
 | `capture_screenshots.py` | `walkthrough-capture` | Git-reconstruct UI screenshots + manifest | walkthrough.json + repo | captures/ |
 | `inject_capture_media.py` | `walkthrough-inject-media` | Attach capture manifest items to `evidence.media` | walkthrough.json + captures/manifest.json | walkthrough.json |
 | `render_html.py` | `walkthrough-render` | JSON → HTML viewer | walkthrough.json | walkthrough.html |
