@@ -153,7 +153,7 @@ Each step represents a logical unit of work in the walkthrough. Steps are ordere
 |-------|------|-------------|
 | `id` | string | Unique step identifier (`step-1`, `step-2`, ...) |
 | `title` | string | Short, descriptive title (the topic) |
-| `takeaway` | string | One declarative outcome sentence: the broad shape of what happened. The line a reader scans to decide whether this step matters. Distinct from `title` (topic) and `intent` (why). **Grammar:** one outcome per line (never weld two *unrelated* outcomes), but DO weld the outcome to its cause — "outcome — which is why…" is the template; length serves causality, not brevity. Never restate the title. Journey steps lead with the durable payload, not activity narration. The takeaway sequence must read as a causal chain with no holes. |
+| `takeaway` | string | One declarative outcome sentence: the broad shape of what happened. The line a reader scans to decide whether this step matters. Distinct from `title` (topic) and `intent` (why). **Grammar:** one outcome per line (never weld two *unrelated* outcomes), but DO weld the outcome to its cause — "outcome — which is why…" is the template; length serves causality, not brevity. The weld is one cause, not a clause chain: caveats, second outcomes, and evidence-rung detail move down a rung; a takeaway that needs a second read to parse must be untangled. Never restate the title — and cover every noun the title promises. Journey steps lead with the durable payload, not activity narration. The takeaway sequence must read as a causal chain with no holes. |
 | `intent` | string | What the agent was trying to accomplish and why |
 | `claims` | array | Individual narrative statements with confidence levels |
 | `evidence` | object | Grounded artifacts from the session logs |
@@ -250,12 +250,12 @@ Evidence fields contain artifacts extracted deterministically from session logs 
 | Field | Type | Description |
 |-------|------|-------------|
 | `files_changed` | array of strings | File paths modified in this step |
-| `diff_hunks` | array | Selected diff hunks (not full diffs) |
+| `diff_hunks` | array | Selected diff hunks (not full diffs). `before`/`after` carry verbatim code from the session — never prose descriptions or annotated summaries. If only prose survives, write a claim with a `source_ref` instead of a paraphrased hunk. |
 | `diff_hunks[].file` | string | File path |
-| `diff_hunks[].before` | string | Code before the change |
-| `diff_hunks[].after` | string | Code after the change |
+| `diff_hunks[].before` | string | Code before the change (verbatim) |
+| `diff_hunks[].after` | string | Code after the change (verbatim) |
 | `commands` | array | Shell commands executed |
-| `commands[].cmd` | string | The command |
+| `commands[].cmd` | string | The command — a reproducible invocation, not a description of one |
 | `commands[].status` | string | `"pass"` or `"fail"` |
 | `commands[].summary` | string | Brief description of the outcome |
 | `screenshots` | array | Legacy screenshot references. The renderer bridges these into `media` and should not double-count them in the UI. |

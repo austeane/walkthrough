@@ -82,3 +82,13 @@ def test_skim_includes_object_form_constraints():
     skim = build_skim(data)
     assert "p99 is proven only to 1,000 TPS." in skim
     assert "Refresh tokens rotate weekly." in skim
+
+
+def test_mode_legend_appears_only_when_tags_present():
+    import copy
+    skim = build_skim(SAMPLE)
+    assert "[journey] are path/process beats" in skim
+    untagged = copy.deepcopy(SAMPLE)
+    for step in untagged["steps"]:
+        step.pop("mode", None)
+    assert "[journey] are path/process beats" not in build_skim(untagged)

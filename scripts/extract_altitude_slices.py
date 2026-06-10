@@ -92,8 +92,24 @@ def _step_heading(index: int, step: dict) -> str:
     return f"{index}. {title}{tag}"
 
 
+def _mode_legend(data: dict) -> list[str]:
+    """One-line legend when any step or claim carries a non-default mode tag."""
+    steps = [s for s in _as_list(data.get("steps")) if isinstance(s, dict)]
+    modes = {s.get("mode") for s in steps if isinstance(s.get("mode"), str)}
+    modes.discard("both")
+    modes.discard("")
+    if not modes:
+        return []
+    return [
+        "(Steps tagged [journey] are path/process beats hidden in the End State view; "
+        "[end-state] steps are destination recaps hidden in the Journey view.)",
+        "",
+    ]
+
+
 def build_skim(data: dict) -> str:
     lines = ["# Skim slice", ""]
+    lines.extend(_mode_legend(data))
     lines.extend(_overview_lines(data))
     lines.append("")
     lines.append("## Steps (title — takeaway)")
@@ -111,6 +127,7 @@ def build_skim(data: dict) -> str:
 
 def build_scan(data: dict) -> str:
     lines = ["# Scan slice (narrative band, no evidence)", ""]
+    lines.extend(_mode_legend(data))
     lines.extend(_overview_lines(data))
 
     overview = data.get("overview") if isinstance(data.get("overview"), dict) else {}
