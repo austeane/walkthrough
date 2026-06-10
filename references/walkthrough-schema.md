@@ -119,7 +119,7 @@ Each step represents a logical unit of work in the walkthrough. Steps are ordere
 |-------|------|-------------|
 | `id` | string | Unique step identifier (`step-1`, `step-2`, ...) |
 | `title` | string | Short, descriptive title (the topic) |
-| `takeaway` | string | One declarative outcome sentence: the broad shape of what happened. The line a reader scans to decide whether this step matters. Distinct from `title` (topic) and `intent` (why). **Grammar:** one outcome per line (never weld two with "and"/"alongside"/semicolons), aim under ~30 words, never restate the title — outcome + cause reads best. Journey steps lead with the durable payload, not activity narration. |
+| `takeaway` | string | One declarative outcome sentence: the broad shape of what happened. The line a reader scans to decide whether this step matters. Distinct from `title` (topic) and `intent` (why). **Grammar:** one outcome per line (never weld two *unrelated* outcomes), but DO weld the outcome to its cause — "outcome — which is why…" is the template; length serves causality, not brevity. Never restate the title. Journey steps lead with the durable payload, not activity narration. The takeaway sequence must read as a causal chain with no holes. |
 | `intent` | string | What the agent was trying to accomplish and why |
 | `claims` | array | Individual narrative statements with confidence levels |
 | `evidence` | object | Grounded artifacts from the session logs |
@@ -377,7 +377,7 @@ for readers who skip the chronology, both rendered in the End State view only:
 | Field | Type | Notes |
 | --- | --- | --- |
 | `architecture` | array | A "How it works today" component panel. Each entry is `{ "component": "...", "summary": "...", "step_refs": ["step-id", ...] }` — list **every** step that details the component so descent never lands one step short (legacy single `step_ref` still accepted; a single ref makes the whole card clickable, multiple refs render one link per step). Organize by system part, not by time. |
-| `constraints` | array | A "Current constraints" list — live limitations/roadmap items only (not historical gotchas). Entries are strings or `{ "text": "...", "step_ref": "step-id" }`; the ref renders as a link to the step that substantiates the constraint. A constraint no step substantiates should usually become or cite one. |
+| `constraints` | array | A "Current constraints" list — live limitations/roadmap items only (not historical gotchas). Entries are strings or `{ "text": "...", "step_ref": "step-id" }`; the ref renders as a link to the step that substantiates the constraint. A constraint no step substantiates should usually become or cite one. **This block carries the operational truth of the destination and is exempt from the brevity bias**: proven-vs-unproven with measured numbers, environment caveats (sandbox vs live), pinned versions/literals, deferred roadmap items, live costs. |
 
 ### Per-view step ordering
 
