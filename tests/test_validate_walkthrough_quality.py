@@ -91,3 +91,120 @@ class TestValidateWalkthroughQuality:
 
         assert not report.ok
         assert any("max allowed" in error for error in report.errors)
+
+
+def _session_file(tmp_path: Path, lines: int = 10) -> Path:
+    session = tmp_path / "normalized.jsonl"
+    session.write_text("\n".join(f'{{"seq": {i}}}' for i in range(lines)) + "\n", encoding="utf-8")
+    return session
+
+
+def _walkthrough_with_refs(tmp_path: Path) -> dict:
+    session = _session_file(tmp_path)
+    data = _valid_walkthrough()
+    data["meta"]["sessions"] = [{"provider": "claude", "path": str(session)}]
+    data["steps"][0]["claims"][0]["source_refs"] = [
+        {"session_path": str(session), "line_start": 1, "line_end": 3}
+    ]
+    return data
+
+
+class TestSourceRefIntegrity:
+    def test_valid_refs_pass_fs_checks(self, tmp_path: Path):
+        data = _walkthrough_with_refs(tmp_path)
+
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+
+        assert report.ok
+        assert not any("source_refs" in w for w in report.warnings)
+
+    def test_missing_ref_file_fails_with_base_dir(self, tmp_path: Path):
+        data = _walkthrough_with_refs(tmp_path)
+        data["steps"][0]["claims"][0]["source_refs"] = [
+            {"session_path": str(tmp_path / "gone.jsonl"), "line_start": 1, "line_end": 3}
+        ]
+
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+
+        assert not report.ok
+        assert any("do not exist" in error for error in report.errors)
+
+    def test_fs_checks_skipped_without_base_dir(self, tmp_path: Path):
+        data = _walkthrough_with_refs(tmp_path)
+        data["steps"][0]["claims"][0]["source_refs"] = [
+            {"session_path": str(tmp_path / "gone.jsonl"), "line_start": 1, "line_end": 3}
+        ]
+
+        report = validate_walkthrough(data)
+
+        assert report.ok
+
+    def test_out_of_bounds_line_range_fails(self, tmp_path: Path):
+        data = _walkthrough_with_refs(tmp_path)
+        data["steps"][0]["claims"][0]["source_refs"][0]["line_end"] = 9999
+
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+
+        assert not report.ok
+        assert any("out of bounds" in error for error in report.errors)
+
+    def test_no_fs_refs_downgrades_to_warnings(self, tmp_path: Path):
+        data = _walkthrough_with_refs(tmp_path)
+        data["steps"][0]["claims"][0]["source_refs"] = [
+            {"session_path": str(tmp_path / "gone.jsonl"), "line_start": 1, "line_end": 3}
+        ]
+
+        report = validate_walkthrough(data, base_dir=str(tmp_path), fs_refs=False)
+
+        assert report.ok
+        assert any("do not exist" in warning for warning in report.warnings)
+
+    def test_undeclared_session_path_warns(self, tmp_path: Path):
+        data = _walkthrough_with_refs(tmp_path)
+        other = tmp_path / "other.jsonl"
+        other.write_text("{}\n" * 5, encoding="utf-8")
+        data["steps"][0]["claims"][0]["source_refs"].append(
+            {"session_path": str(other), "line_start": 1, "line_end": 2}
+        )
+
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+
+        assert report.ok
+        assert any("not declared in meta.sessions" in warning for warning in report.warnings)
+
+    def test_grounded_monoculture_warns(self):
+        data = _valid_walkthrough()
+        claim = data["steps"][0]["claims"][0]
+        data["steps"][0]["claims"] = [dict(claim, text=f"Claim {i}") for i in range(20)]
+
+        report = validate_walkthrough(data)
+
+        assert any("rubber-stamped" in warning for warning in report.warnings)
+
+    def test_wide_span_warns(self):
+        data = _valid_walkthrough()
+        data["steps"][0]["claims"][0]["source_refs"] = [
+            {"session_path": "chunk.jsonl", "line_start": 1, "line_end": 760}
+        ]
+
+        report = validate_walkthrough(data)
+
+        assert any("span more than" in warning for warning in report.warnings)
+
+    def test_shared_range_across_claims_warns(self):
+        data = _valid_walkthrough()
+        claim = data["steps"][0]["claims"][0]
+        data["steps"][0]["claims"] = [dict(claim, text=f"Claim {i}") for i in range(3)]
+
+        report = validate_walkthrough(data)
+
+        assert any("distinct assertions" in warning for warning in report.warnings)
+
+    def test_missing_end_state_warns_and_presence_clears(self):
+        data = _valid_walkthrough()
+        report = validate_walkthrough(data)
+        assert any("end_state missing" in warning for warning in report.warnings)
+
+        data["overview"]["end_state"] = {"goal": "The system now does X.", "summary": ["One service."]}
+        report = validate_walkthrough(data)
+        assert not any("end_state missing" in warning for warning in report.warnings)

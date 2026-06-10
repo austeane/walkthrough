@@ -119,7 +119,7 @@ Each step represents a logical unit of work in the walkthrough. Steps are ordere
 |-------|------|-------------|
 | `id` | string | Unique step identifier (`step-1`, `step-2`, ...) |
 | `title` | string | Short, descriptive title (the topic) |
-| `takeaway` | string | One declarative outcome sentence: the broad shape of what happened. The line a reader scans to decide whether this step matters. Distinct from `title` (topic) and `intent` (why). |
+| `takeaway` | string | One declarative outcome sentence: the broad shape of what happened. The line a reader scans to decide whether this step matters. Distinct from `title` (topic) and `intent` (why). **Grammar:** one outcome per line (never weld two with "and"/"alongside"/semicolons), aim under ~30 words, never restate the title — outcome + cause reads best. Journey steps lead with the durable payload, not activity narration. |
 | `intent` | string | What the agent was trying to accomplish and why |
 | `claims` | array | Individual narrative statements with confidence levels |
 | `evidence` | object | Grounded artifacts from the session logs |
@@ -141,6 +141,10 @@ whatever depth they need:
 4. **Narrative** — `claims` (with confidence), plus `decisions` and
    `errors_encountered`. These render in the always-visible band: decisions and
    gotchas are reasoning, not raw artifacts, so they are never buried.
+   **One fact, one rung:** claims carry what changed, decisions carry why plus
+   alternatives, gotchas carry symptom plus resolution — none re-narrates
+   another. A bug's root cause lives in the claim or the decision rationale,
+   never both.
 5. **Proof** — `evidence` (`diff_hunks`, `commands`, `media`) renders inside a
    collapsed `<details>` with a one-line scent label, expandable on demand.
 
@@ -362,13 +366,18 @@ When `end_state` is present the viewer renders both framings (hero + deck title)
 shows the one matching the active view; when absent, the journey framing is used in
 both. The overview stat counts and reasoning maps recompute to the active view.
 
+**Distinct framings:** the journey `goal`/`summary` and the end-state `goal`/`summary`
+must not restate the same bullets. The journey framing names the problem and the
+transformation; the end-state framing names the destination as a noun phrase. If the
+two goals could swap unnoticed, rewrite one.
+
 `end_state` also accepts two optional fields that build a **destination-first reference**
 for readers who skip the chronology, both rendered in the End State view only:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `architecture` | array | A "How it works today" component panel. Each entry is `{ "component": "...", "summary": "...", "step_ref": "step-id" }`; `step_ref` resolves to a step number + anchor link. Organize by system part, not by time. |
-| `constraints` | array of strings | A "Current constraints" list — live limitations/roadmap items only (not historical gotchas). |
+| `architecture` | array | A "How it works today" component panel. Each entry is `{ "component": "...", "summary": "...", "step_refs": ["step-id", ...] }` — list **every** step that details the component so descent never lands one step short (legacy single `step_ref` still accepted; a single ref makes the whole card clickable, multiple refs render one link per step). Organize by system part, not by time. |
+| `constraints` | array | A "Current constraints" list — live limitations/roadmap items only (not historical gotchas). Entries are strings or `{ "text": "...", "step_ref": "step-id" }`; the ref renders as a link to the step that substantiates the constraint. A constraint no step substantiates should usually become or cite one. |
 
 ### Per-view step ordering
 

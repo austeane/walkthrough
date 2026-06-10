@@ -262,6 +262,11 @@
         .es-arch__comp { font-weight: 700; font-size: 0.92rem; }
         .es-arch__sum { font-size: 0.83rem; color: var(--text-2); line-height: 1.42; }
         .es-arch__ref { font-family: var(--font-mono); font-size: 0.67rem; color: var(--text-3); margin-top: 0.1rem; }
+        .es-arch__refs { display: flex; flex-wrap: wrap; gap: 0.15rem 0.6rem; margin-top: 0.1rem; }
+        .es-arch__refs .es-arch__ref { text-decoration: none; }
+        .es-arch__refs .es-arch__ref:hover { color: var(--accent); }
+        .es-constraints__ref { font-family: var(--font-mono); font-size: 0.67rem; color: var(--text-3); text-decoration: none; white-space: nowrap; }
+        .es-constraints__ref:hover { color: var(--accent); }
         .es-constraints { margin: 1.5rem 0 0.2rem; }
         .es-constraints ul { margin: 0; padding-left: 1.15rem; }
         .es-constraints li { font-size: 0.85rem; color: var(--text-2); line-height: 1.5; }
@@ -1012,6 +1017,7 @@
                             <span class="es-arch__comp">{{ c.component }}</span>
                             {% if c.summary %}<span class="es-arch__sum">{{ c.summary }}</span>{% endif %}
                             {% if c.step_label %}<span class="es-arch__ref">{{ c.step_label }} &rarr;</span>{% endif %}
+                            {% if c.refs %}<span class="es-arch__refs">{% for r in c.refs %}<a class="es-arch__ref" href="#{{ r.step_id }}">{{ r.step_label }} &rarr;</a>{% endfor %}</span>{% endif %}
                         {% if c.step_id %}</a>{% else %}</div>{% endif %}
                         {% endfor %}
                     </div>
@@ -1020,7 +1026,7 @@
                 {% if data.overview._end_state_constraints %}
                 <div class="es-constraints reveal" data-view-tag="end-state">
                     <div class="es-constraints__label">Current constraints</div>
-                    <ul>{% for c in data.overview._end_state_constraints %}<li>{{ c }}</li>{% endfor %}</ul>
+                    <ul>{% for c in data.overview._end_state_constraints %}<li>{{ c.text }}{% if c.step_id %} <a class="es-constraints__ref" href="#{{ c.step_id }}">{{ c.step_label }} &rarr;</a>{% endif %}</li>{% endfor %}</ul>
                 </div>
                 {% endif %}
                 <div class="stat-strip reveal">

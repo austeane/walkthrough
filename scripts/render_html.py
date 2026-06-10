@@ -33,6 +33,14 @@ except Exception:
     except Exception:
         attach_capture_media = None
 
+try:
+    from scripts.validate_walkthrough_quality import validate_walkthrough
+except Exception:
+    try:
+        from validate_walkthrough_quality import validate_walkthrough
+    except Exception:
+        validate_walkthrough = None
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_TEMPLATE = SCRIPT_DIR.parent / "assets" / "walkthrough-template.html"
 DISPLAYABLE_ROOT_DIRS = {"src", "e2e", "scripts", "docs", "db", "repos", "likec4"}
@@ -653,20 +661,45 @@ def prepare_data(data: dict) -> dict:
                 component = _compact_text(entry.get("component"))
                 if not component:
                     continue
-                num = id_to_num.get(entry.get("step_ref"))
+                # A component may span several steps: `step_refs` lists them all;
+                # legacy `step_ref` stays supported and leads the list.
+                raw_refs = [entry.get("step_ref")] if entry.get("step_ref") else []
+                if isinstance(entry.get("step_refs"), list):
+                    raw_refs += [r for r in entry["step_refs"] if r and r not in raw_refs]
+                refs = [
+                    {"step_id": ref, "step_label": f"Step {id_to_num[ref]}"}
+                    for ref in raw_refs
+                    if id_to_num.get(ref)
+                ]
                 resolved.append({
                     "component": component,
                     "summary": _compact_text(entry.get("summary")),
-                    "step_id": entry.get("step_ref") if num else "",
-                    "step_label": f"Step {num}" if num else "",
+                    # single-ref cards stay fully clickable; multi-ref cards
+                    # render one link per step instead.
+                    "step_id": refs[0]["step_id"] if len(refs) == 1 else "",
+                    "step_label": refs[0]["step_label"] if len(refs) == 1 else "",
+                    "refs": refs if len(refs) > 1 else [],
                 })
             if resolved:
                 overview["_end_state_architecture"] = resolved
         es_constraints = end_state.get("constraints")
         if isinstance(es_constraints, list):
-            es_constraints = [str(c).strip() for c in es_constraints if _compact_text(c)]
-            if es_constraints:
-                overview["_end_state_constraints"] = es_constraints
+            resolved_constraints = []
+            for c in es_constraints:
+                if isinstance(c, dict):
+                    text = _compact_text(c.get("text"))
+                    if not text:
+                        continue
+                    num = id_to_num.get(c.get("step_ref"))
+                    resolved_constraints.append({
+                        "text": text,
+                        "step_id": c.get("step_ref") if num else "",
+                        "step_label": f"Step {num}" if num else "",
+                    })
+                elif _compact_text(c):
+                    resolved_constraints.append({"text": str(c).strip(), "step_id": "", "step_label": ""})
+            if resolved_constraints:
+                overview["_end_state_constraints"] = resolved_constraints
     has_diagram_image = bool(
         overview.get("diagram_image")
         or overview.get("_diagram_image_light")
@@ -1092,6 +1125,11 @@ def main() -> None:
             "If omitted, auto-discovers sibling captures/manifest.json next to --input."
         ),
     )
+    parser.add_argument(
+        "--allow-draft",
+        action="store_true",
+        help="Render even if the editorial quality gate fails (draft output)",
+    )
     args = parser.parse_args()
 
     if not args.input.exists():
@@ -1101,6 +1139,22 @@ def main() -> None:
     if not args.template.exists():
         print(f"Error: template not found: {args.template}", file=sys.stderr)
         sys.exit(1)
+
+    # The quality gate binds at render time: a failing walkthrough is a draft,
+    # and drafts only render with an explicit --allow-draft.
+    if validate_walkthrough is not None and not args.allow_draft:
+        gate_data = json.loads(args.input.read_text(encoding="utf-8"))
+        gate_report = validate_walkthrough(
+            gate_data, base_dir=str(args.input.resolve().parent)
+        )
+        if not gate_report.ok:
+            for error in gate_report.errors:
+                print(f"QUALITY GATE ERROR: {error}", file=sys.stderr)
+            print(
+                "Error: quality gate failed — re-edit the walkthrough or pass --allow-draft to render a draft.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     render(
         args.input,
