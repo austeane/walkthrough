@@ -208,3 +208,102 @@ class TestSourceRefIntegrity:
         data["overview"]["end_state"] = {"goal": "The system now does X.", "summary": ["One service."]}
         report = validate_walkthrough(data)
         assert not any("end_state missing" in warning for warning in report.warnings)
+
+
+class TestGlossaryLint:
+    def _walkthrough_with_glossary(self, glossary) -> dict:
+        data = _valid_walkthrough()
+        data["glossary"] = glossary
+        # Make sure prose mentions the well-formed sample terms.
+        data["overview"]["summary"] = [
+            "WIF keeps GitHub Actions keyless.",
+            "The registration flow is unified.",
+            "Everything routes through src/app.ts.",
+        ]
+        return data
+
+    def test_no_glossary_emits_nothing(self):
+        report = validate_walkthrough(_valid_walkthrough())
+        assert not any("glossary" in w for w in report.warnings)
+
+    def test_well_formed_glossary_is_clean(self, tmp_path: Path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "src").mkdir()
+        (repo / "src" / "app.ts").write_text("x\n", encoding="utf-8")
+        data = self._walkthrough_with_glossary([
+            {"term": "WIF", "expanded": "Workload Identity Federation",
+             "definition": "Keyless GitHub Actions auth.", "aliases": ["Workload Identity Federation"]},
+            {"term": "src/app.ts", "definition": "Entry point.", "file": "src/app.ts"},
+        ])
+        data["meta"]["repo_root"] = str(repo)
+        report = validate_walkthrough(data)
+        assert not any("glossary" in w for w in report.warnings), report.warnings
+
+    def test_dict_form_glossary_is_accepted(self):
+        data = self._walkthrough_with_glossary({"WIF": "Keyless GitHub Actions auth."})
+        report = validate_walkthrough(data)
+        assert not any("glossary" in w for w in report.warnings), report.warnings
+
+    def test_warns_on_non_collection_glossary(self):
+        data = self._walkthrough_with_glossary("WIF means Workload Identity Federation")
+        report = validate_walkthrough(data)
+        assert any("array of entries" in w for w in report.warnings)
+
+    def test_warns_on_incomplete_and_duplicate_entries(self):
+        data = self._walkthrough_with_glossary([
+            {"term": "WIF"},
+            {"term": "wif", "definition": "Keyless auth."},
+            {"term": "WIF", "definition": "Duplicate spelling."},
+        ])
+        report = validate_walkthrough(data)
+        assert any("lack a term or any definition" in w for w in report.warnings)
+        assert any("duplicated" in w for w in report.warnings)
+
+    def test_warns_on_dead_terms_never_in_prose(self):
+        data = self._walkthrough_with_glossary([
+            {"term": "ZGQ", "definition": "An acronym no prose mentions."},
+        ])
+        report = validate_walkthrough(data)
+        assert any("never appear in reader-facing prose" in w for w in report.warnings)
+
+    def test_alias_match_keeps_term_alive(self):
+        data = self._walkthrough_with_glossary([
+            {"term": "ZGQ", "definition": "Known by its long name in prose.",
+             "aliases": ["registration flow"]},
+        ])
+        report = validate_walkthrough(data)
+        assert not any("never appear" in w for w in report.warnings)
+
+    def test_term_match_is_word_bounded(self):
+        data = self._walkthrough_with_glossary([
+            {"term": "gist", "definition": "Should not match 'registration'."},
+        ])
+        report = validate_walkthrough(data)
+        assert any("never appear" in w for w in report.warnings)
+
+    def test_warns_on_unresolvable_file_path(self, tmp_path: Path):
+        data = self._walkthrough_with_glossary([
+            {"term": "WIF", "definition": "Keyless auth.", "file": "infra/nope.hcl"},
+        ])
+        data["meta"]["repo_root"] = str(tmp_path)
+        report = validate_walkthrough(data)
+        assert any("file paths do not resolve" in w for w in report.warnings)
+
+    def test_explicit_href_skips_file_resolution(self):
+        data = self._walkthrough_with_glossary([
+            {"term": "WIF", "definition": "Keyless auth.", "file": "infra/nope.hcl",
+             "href": "https://example.com/docs/wif"},
+        ])
+        report = validate_walkthrough(data)
+        assert not any("file paths do not resolve" in w for w in report.warnings)
+
+    def test_warns_on_oversized_definition_and_entry_count(self):
+        entries = [{"term": "WIF", "definition": "x" * 400}]
+        entries += [
+            {"term": f"term{i}", "definition": "A filler entry."} for i in range(55)
+        ]
+        data = self._walkthrough_with_glossary(entries)
+        report = validate_walkthrough(data)
+        assert any("exceed 300 chars" in w for w in report.warnings)
+        assert any("tooltip overload" in w for w in report.warnings)

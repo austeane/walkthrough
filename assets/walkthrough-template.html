@@ -1945,7 +1945,9 @@
             if (direct) return direct;
             const file = String(entry.file || entry.github_path || entry.path || '').trim();
             if (!file) return '';
-            return this.githubFileHref(file, entry.github_ref || entry.ref);
+            const github = this.githubFileHref(file, entry.github_ref || entry.ref);
+            if (github) return github;
+            return this.normalizeFileRef(file).cursorHref || '';
         }
 
         githubFileHref(filePath, ref) {

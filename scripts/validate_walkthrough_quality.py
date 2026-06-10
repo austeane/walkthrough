@@ -132,6 +132,148 @@ def _examples(items: list[str], limit: int = 3) -> str:
 MAX_REF_SPAN_LINES = 200
 SHARED_RANGE_CLAIM_LIMIT = 3
 MONOCULTURE_CLAIM_FLOOR = 20
+GLOSSARY_MAX_ENTRIES = 50
+GLOSSARY_MAX_DEFINITION_CHARS = 300
+
+# Keys whose string values are never reader-facing prose (so glossary terms
+# appearing only there would never be annotated by the viewer).
+_NON_PROSE_KEYS = frozenset({
+    "evidence", "source_refs", "files_changed", "key_files", "commands",
+    "media", "screenshots", "diff", "code", "output", "session_path",
+    "path", "file", "href", "url", "id", "step_ref", "step_refs", "mode",
+    "confidence", "provider", "timestamp", "github_path", "github_ref",
+    "diagram_mermaid", "diagram_image", "aliases",
+})
+
+
+def _collect_prose(value: object, out: list[str]) -> None:
+    if isinstance(value, str):
+        out.append(value)
+    elif isinstance(value, list):
+        for item in value:
+            _collect_prose(item, out)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key not in _NON_PROSE_KEYS:
+                _collect_prose(item, out)
+
+
+def _normalize_glossary(raw: object) -> tuple[list[dict], int]:
+    """Mirror the viewer's normalizeGlossary: accept an array of entry objects
+    or a {term: definition-or-object} map. Returns (entries, malformed_count)
+    where malformed counts items that are not objects at all."""
+    entries: list[dict] = []
+    malformed = 0
+    if isinstance(raw, dict):
+        for term, value in raw.items():
+            if isinstance(value, str):
+                entries.append({"term": term, "definition": value})
+            elif isinstance(value, dict):
+                entries.append({"term": term, **value})
+            else:
+                malformed += 1
+    elif isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict):
+                entries.append(item)
+            else:
+                malformed += 1
+    return entries, malformed
+
+
+def _validate_glossary(data: dict, report: QualityReport, *, base_dir: str | None) -> None:
+    """Glossary lint (warnings only — the feature is optional): malformed
+    entries, duplicate terms, dead terms that never appear in annotated prose,
+    file paths that do not resolve, oversized definitions or entry counts."""
+    overview = data.get("overview") if isinstance(data.get("overview"), dict) else {}
+    raw = data.get("glossary", overview.get("glossary"))
+    if raw is None:
+        return
+    if not isinstance(raw, (list, dict)):
+        report.add_warning("glossary must be an array of entries or a term->definition map")
+        return
+
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    repo_root = _as_text(meta.get("repo_root")).rstrip("/")
+    entries, malformed = _normalize_glossary(raw)
+
+    incomplete: list[str] = []
+    seen_terms: set[str] = set()
+    duplicates: list[str] = []
+    long_definitions: list[str] = []
+    missing_files: list[str] = []
+    dead_terms: list[str] = []
+
+    prose_parts: list[str] = []
+    _collect_prose(overview, prose_parts)
+    _collect_prose(data.get("steps"), prose_parts)
+    prose = "\n".join(prose_parts)
+
+    for entry in entries:
+        term = _as_text(entry.get("term") or entry.get("label"))
+        definition = _as_text(entry.get("definition") or entry.get("description"))
+        expanded = _as_text(entry.get("expanded") or entry.get("expansion"))
+        if not term or not (definition or expanded):
+            incomplete.append(term or "(no term)")
+            continue
+
+        key = term.lower()
+        if key in seen_terms:
+            duplicates.append(term)
+            continue
+        seen_terms.add(key)
+
+        if len(definition) > GLOSSARY_MAX_DEFINITION_CHARS:
+            long_definitions.append(term)
+
+        file_path = _as_text(entry.get("file") or entry.get("github_path"))
+        if file_path and not _as_text(entry.get("href") or entry.get("url")):
+            if _resolve_ref_path(file_path, base_dir or "", repo_root) is None:
+                missing_files.append(f"{term}: {file_path}")
+
+        aliases = entry.get("aliases") if isinstance(entry.get("aliases"), list) else []
+        patterns = [p for p in [term, *(_as_text(a) for a in aliases)] if len(p) >= 2]
+        found = any(
+            re.search(
+                r"(?:^|[^A-Za-z0-9_])" + re.escape(pattern) + r"(?=$|[^A-Za-z0-9_])",
+                prose,
+                re.IGNORECASE,
+            )
+            for pattern in patterns
+        )
+        if not found:
+            dead_terms.append(term)
+
+    if malformed:
+        report.add_warning(f"{malformed} glossary entries are not objects (or map values are invalid)")
+    if incomplete:
+        report.add_warning(
+            f"{len(incomplete)} glossary entries lack a term or any definition/expansion: "
+            + _examples(incomplete)
+        )
+    if duplicates:
+        report.add_warning(
+            f"{len(duplicates)} glossary terms are duplicated (case-insensitive): " + _examples(duplicates)
+        )
+    if long_definitions:
+        report.add_warning(
+            f"{len(long_definitions)} glossary definitions exceed {GLOSSARY_MAX_DEFINITION_CHARS} chars "
+            "(tooltips should be one or two short sentences): " + _examples(long_definitions)
+        )
+    if missing_files:
+        report.add_warning(
+            f"{len(missing_files)} glossary file paths do not resolve on disk: " + _examples(missing_files)
+        )
+    if dead_terms:
+        report.add_warning(
+            f"{len(dead_terms)} glossary terms never appear in reader-facing prose "
+            "(the viewer will never annotate them): " + _examples(dead_terms)
+        )
+    if len(entries) > GLOSSARY_MAX_ENTRIES:
+        report.add_warning(
+            f"glossary has {len(entries)} entries (over {GLOSSARY_MAX_ENTRIES}) — "
+            "tooltip overload dilutes the signal; keep the terms a new teammate actually needs"
+        )
 
 
 def _validate_source_refs(
@@ -324,6 +466,7 @@ def validate_walkthrough(
         )
 
     _validate_source_refs(data, report, base_dir=base_dir, fs_refs=fs_refs)
+    _validate_glossary(data, report, base_dir=base_dir)
 
     return report
 

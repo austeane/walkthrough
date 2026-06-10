@@ -87,7 +87,7 @@ Use `glossary` for acronyms, product names, and project shorthand that a new tea
 | `definition` | string | Short explanation for a new reader |
 | `aliases` | array | Optional additional spellings that use the same tooltip |
 | `href` | string | Optional explicit link. When present, the rendered term is an anchor, so Cmd/Ctrl-click opens the target in a new tab. |
-| `file` | string | Optional repo-relative file path. When `href` is absent, the viewer builds a GitHub `blob` link from `meta.repo` and `meta.git.branch` or `meta.git.commit`. |
+| `file` | string | Optional repo-relative file path. When `href` is absent, the viewer builds a GitHub `blob` link from `meta.repo` and `meta.git.branch` or `meta.git.commit`; without a usable `meta.repo` it falls back to a local editor link built from `meta.repo_root`. |
 | `github_path` | string | Alias for `file` when callers want to make the GitHub intent explicit |
 | `github_ref` | string | Optional branch, tag, or commit override for generated GitHub file links |
 | `max_occurrences` | number | Optional cap per term per rendered view; defaults to 4 for plain terms and 20 for linked terms |
