@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-mode="reading" data-view="endstate">
+<html lang="en" data-theme="dark" data-mode="reading" data-view="endstate"{% if data.overview._reorder %} data-reorder="on"{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -224,6 +224,47 @@
         /* Alternatives-considered are paths-not-taken — journey detail only. */
         html[data-view="endstate"] .callout__alts,
         html[data-view="endstate"] .slide__alts { display: none !important; }
+
+        /* End-state reference ordering (only when the walkthrough authors
+           `end_state_order`, signalled by data-reorder). The reading view, TOC
+           and jump-grid become flex/grid so each step can sit in a different
+           position per view: end-state reads as a reference, journey stays
+           chronological. Each orderable element carries inline --es-order /
+           --jy-order; scroll-spy is position-based so it follows the visual order. */
+        html[data-reorder="on"] .reading-view { display: flex; flex-direction: column; }
+        html[data-reorder="on"][data-view="endstate"] .reading-view > section[data-step],
+        html[data-reorder="on"][data-view="endstate"] .reading-view > article[data-step] { order: var(--es-order, 999); }
+        html[data-reorder="on"][data-view="journey"] .reading-view > section[data-step],
+        html[data-reorder="on"][data-view="journey"] .reading-view > article[data-step] { order: var(--jy-order, 999); }
+        html[data-reorder="on"][data-mode="reading"] .toc { display: flex; flex-direction: column; }
+        html[data-reorder="on"][data-mode="reading"][data-view="endstate"] .toc > li { order: var(--es-order, 999); }
+        html[data-reorder="on"][data-mode="reading"][data-view="journey"] .toc > li { order: var(--jy-order, 999); }
+        html[data-reorder="on"][data-view="endstate"] .jump-card { order: var(--es-order, 999); }
+        html[data-reorder="on"][data-view="journey"] .jump-card { order: var(--jy-order, 999); }
+
+        /* "How it works today" component panel + current constraints (end-state only). */
+        .es-arch { margin: 1.7rem 0 0.3rem; }
+        .es-arch__label, .es-constraints__label {
+            font-size: 0.66rem; font-weight: 700; letter-spacing: 0.16em;
+            text-transform: uppercase; color: var(--accent); margin-bottom: 0.75rem;
+        }
+        .es-arch__grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); gap: 0.7rem;
+        }
+        .es-arch__card {
+            display: flex; flex-direction: column; gap: 0.32rem; text-decoration: none;
+            padding: 0.85rem 1rem; border: 1px solid var(--hairline);
+            border-left: 3px solid var(--accent); border-radius: var(--radius-sm);
+            background: var(--surface); color: var(--text);
+            transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease);
+        }
+        .es-arch__card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+        .es-arch__comp { font-weight: 700; font-size: 0.92rem; }
+        .es-arch__sum { font-size: 0.83rem; color: var(--text-2); line-height: 1.42; }
+        .es-arch__ref { font-family: var(--font-mono); font-size: 0.67rem; color: var(--text-3); margin-top: 0.1rem; }
+        .es-constraints { margin: 1.5rem 0 0.2rem; }
+        .es-constraints ul { margin: 0; padding-left: 1.15rem; }
+        .es-constraints li { font-size: 0.85rem; color: var(--text-2); line-height: 1.5; }
 
         /* =========================================================
            SIDEBAR / TOC
@@ -902,9 +943,9 @@
             {% if data.meta and data.meta.repo %}<div class="sidebar__repo">{{ data.meta.repo }}</div>{% endif %}
         </div>
         <ul class="toc" id="toc">
-            <li><a class="toc-link" data-step="0" href="#overview"><span class="toc-num">0</span><span class="toc-text">Overview</span></a></li>
+            <li style="--es-order:0;--jy-order:0"><a class="toc-link" data-step="0" href="#overview"><span class="toc-num">0</span><span class="toc-text">Overview</span></a></li>
             {% for step in data.steps %}
-            <li{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}><a class="toc-link" data-step="{{ loop.index }}" href="#{{ step.id }}"><span class="toc-num">{{ loop.index }}</span><span class="toc-text">{{ step.title }}</span></a></li>
+            <li style="--es-order:{{ step._es_order | default(loop.index) }};--jy-order:{{ step._jy_order | default(loop.index) }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}><a class="toc-link" data-step="{{ loop.index }}" href="#{{ step.id }}"><span class="toc-num">{{ loop.index }}</span><span class="toc-text">{{ step.title }}</span></a></li>
             {% endfor %}
         </ul>
     </nav>
@@ -943,7 +984,7 @@
             {% endfor %}
         {% endfor %}
 
-        <section class="overview step" id="overview" data-step="0">
+        <section class="overview step" id="overview" data-step="0" style="--es-order:0;--jy-order:0">
             <div class="wrap">
                 <div class="hero__eyebrow reveal">Walkthrough{% if data.meta and data.meta.scope %} &middot; {{ data.meta.scope }}{% endif %}</div>
                 {% if data.overview._end_state_goal %}
@@ -961,6 +1002,26 @@
                 <ul class="hero__summary reveal"{% if data.overview._end_state_summary %} data-view-tag="journey"{% endif %}>
                     {% for item in data.overview.summary %}<li>{{ item }}</li>{% endfor %}
                 </ul>
+                {% endif %}
+                {% if data.overview._end_state_architecture %}
+                <div class="es-arch reveal" data-view-tag="end-state">
+                    <div class="es-arch__label">How it works today</div>
+                    <div class="es-arch__grid">
+                        {% for c in data.overview._end_state_architecture %}
+                        {% if c.step_id %}<a class="es-arch__card" href="#{{ c.step_id }}">{% else %}<div class="es-arch__card">{% endif %}
+                            <span class="es-arch__comp">{{ c.component }}</span>
+                            {% if c.summary %}<span class="es-arch__sum">{{ c.summary }}</span>{% endif %}
+                            {% if c.step_label %}<span class="es-arch__ref">{{ c.step_label }} &rarr;</span>{% endif %}
+                        {% if c.step_id %}</a>{% else %}</div>{% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% if data.overview._end_state_constraints %}
+                <div class="es-constraints reveal" data-view-tag="end-state">
+                    <div class="es-constraints__label">Current constraints</div>
+                    <ul>{% for c in data.overview._end_state_constraints %}<li>{{ c }}</li>{% endfor %}</ul>
+                </div>
                 {% endif %}
                 <div class="stat-strip reveal">
                     <div class="stat"><span class="stat__n" data-stat="steps">{{ data.steps | length }}</span><span class="stat__l">steps</span></div>
@@ -992,7 +1053,7 @@
             {% if data.steps %}
             <div class="jump-grid reveal">
                 {% for step in data.steps %}
-                <a class="jump-card" href="#{{ step.id }}" data-step="{{ loop.index }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}>
+                <a class="jump-card" href="#{{ step.id }}" data-step="{{ loop.index }}" style="--es-order:{{ step._es_order | default(loop.index) }};--jy-order:{{ step._jy_order | default(loop.index) }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}>
                     <span class="jump-card__n">{{ "%02d"|format(loop.index) }}</span>
                     <span class="jump-card__body">
                         <span class="jump-card__t">{{ step.title }}</span>
@@ -1100,7 +1161,7 @@
         </section>
 
         {% for step in data.steps %}
-        <article class="step" id="{{ step.id }}" data-step="{{ loop.index }}" data-step-id="{{ step.id }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}>
+        <article class="step" id="{{ step.id }}" data-step="{{ loop.index }}" data-step-id="{{ step.id }}" style="--es-order:{{ step._es_order | default(loop.index) }};--jy-order:{{ step._jy_order | default(loop.index) }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}>
             <div class="wrap">
                 <div class="step-eyebrow reveal">
                     <span>Step {{ loop.index }}</span>
@@ -1353,7 +1414,12 @@
         getVisibleSteps() {
             // Respect both search (inline display:none) and the view filter (stylesheet
             // display:none via [data-view-tag]); computed style reflects either.
-            return this.steps.filter(step => getComputedStyle(step).display !== 'none');
+            // Sort by on-screen position so next/prev and "first visible" follow the
+            // *visual* order, which differs from DOM order when the end-state view
+            // reorders steps via CSS `order`.
+            return this.steps
+                .filter(step => getComputedStyle(step).display !== 'none')
+                .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
         }
 
         goRelative(delta) {

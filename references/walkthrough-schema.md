@@ -35,6 +35,9 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
   "repo": "github.com/user/project",
   "repo_root": "/Users/dev/project",
   "scope": "auth module rewrite",
+  "audience": "teammate",
+  "purpose": "onboard",
+  "detail_level": "both/toggleable",
   "media_mode": "none"
 }
 ```
@@ -50,6 +53,9 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
 | `repo_root` | string | Absolute path to the project root. Used by the HTML viewer to build editor links and repo-relative labels when possible. |
 | `git` | object | Best-effort git metadata for the source sessions (`branch`, `commit`, `dirty`) |
 | `scope` | string | User-specified scope of the walkthrough |
+| `audience` | string | Target reader, e.g. `"self"`, `"teammate"`, or `"reviewer"`. Used by the editorial process, not the renderer. |
+| `purpose` | string | Why the walkthrough exists, e.g. `"onboard"`, `"understand"`, or `"review"`. Used to decide what earns space. |
+| `detail_level` | string | Desired depth, e.g. `"high-level"`, `"technical"`, or `"both/toggleable"`. Controls depth, not breadth. |
 | `media_mode` | string | Screenshot mode: `"none"`, `"extract"`, `"capture"`, or `"both"` |
 
 ## Overview
@@ -120,6 +126,7 @@ Each step represents a logical unit of work in the walkthrough. Steps are ordere
 | `decisions` | array | Key decisions made during this step. Canonical entries are objects with `decision`, optional `rationale`, and optional `alternatives_considered`; the renderer tolerates legacy string entries. |
 | `errors_encountered` | array | Problems hit and how they were resolved. Canonical entries are objects with `error` and optional `resolution`; the renderer tolerates legacy string entries. |
 | `mode` | string | Optional view tag: `"end-state"`, `"journey"`, or `"both"` (default). Controls whether the step appears in the viewer's End State view, Journey view, or both. See [View modes](#view-modes). |
+| `end_state_order` | integer | Optional. Position of this step in the **End State view** only (Journey stays chronological). See [Per-view step ordering](#per-view-step-ordering). |
 
 ### The altitude ladder
 
@@ -341,7 +348,12 @@ view its own, destination-first framing:
   "summary": ["We started on …", "We then …", "Finally we …"],
   "end_state": {
     "goal": "X is two services stamped from one multi-tenant engine.",
-    "summary": ["Two Cloud Run services …", "One engine, per-tenant profiles …"]
+    "summary": ["Two Cloud Run services …", "One engine, per-tenant profiles …"],
+    "architecture": [
+      { "component": "Surface", "summary": "Five verbs over one engine.", "step_ref": "step-8" },
+      { "component": "Boundary", "summary": "Two services; the gateway authors provenance.", "step_ref": "step-3" }
+    ],
+    "constraints": ["Executor is Node-pinned for the native binary.", "Egress enforcement deferred to R1."]
   }
 }
 ```
@@ -349,6 +361,27 @@ view its own, destination-first framing:
 When `end_state` is present the viewer renders both framings (hero + deck title) and
 shows the one matching the active view; when absent, the journey framing is used in
 both. The overview stat counts and reasoning maps recompute to the active view.
+
+`end_state` also accepts two optional fields that build a **destination-first reference**
+for readers who skip the chronology, both rendered in the End State view only:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `architecture` | array | A "How it works today" component panel. Each entry is `{ "component": "...", "summary": "...", "step_ref": "step-id" }`; `step_ref` resolves to a step number + anchor link. Organize by system part, not by time. |
+| `constraints` | array of strings | A "Current constraints" list — live limitations/roadmap items only (not historical gotchas). |
+
+### Per-view step ordering
+
+By default both views show steps in authored (chronological) order. Add `end_state_order`
+(an integer) to any step to give the **End State view** a different reading order — so it
+can read as a reference (what → how → tradeoffs) while the Journey view stays chronological.
+Steps without `end_state_order` trail in authored order (typically `mode: "journey"` steps,
+which are hidden in the End State view anyway). Ordering activates only when at least one
+step sets `end_state_order` — otherwise both views use authored order, unchanged.
+
+```json
+{ "id": "step-8", "title": "The surface", "mode": "both", "end_state_order": 2 }
+```
 
 ## Evidence Rules
 
@@ -362,4 +395,4 @@ The walkthrough schema enforces a clear separation between narrative (claims) an
 
 4. **The HTML viewer respects confidence.** Grounded claims render normally. Inferred claims get a subtle visual indicator. Speculative claims get a visible badge so readers know to treat them with appropriate skepticism.
 
-5. **Steps are editorial, not mechanical.** The orchestrator model decides how many steps, what grouping, and what emphasis. 100 agent actions across 5 sessions might become 8-12 steps. The goal is teaching, not transcript replay.
+5. **Steps are editorial, not mechanical.** The orchestrator model decides how many steps, what grouping, what emphasis, and what to omit. 100 agent actions across 5 sessions might become 5-10 steps. The goal is teaching for a specific reader and purpose, not transcript replay.

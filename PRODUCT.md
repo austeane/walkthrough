@@ -25,7 +25,11 @@ path with its pivots and dead-ends. Both must pass the skim test on their own.
 
 The prime directive: the walkthrough teaches the developer their own codebase.
 It is compression and editorial judgment over chronology. 100 agent actions
-across 5 sessions might become 8 to 20 steps.
+across 5 sessions might become 5 to 10 steps, with 12 as the usual hard ceiling.
+
+Brevity and focus outrank completeness. The product should help the target
+reader accomplish the stated purpose, not prove that every session event was
+noticed.
 
 ## Users
 

@@ -635,6 +635,38 @@ def prepare_data(data: dict) -> dict:
         es_summary = [str(s).strip() for s in es_summary if _compact_text(s)]
         if es_summary:
             overview["_end_state_summary"] = es_summary
+        # "How it works today" component panel + current constraints, shown only
+        # in the end-state view. `architecture[].step_ref` links a component to
+        # the step that details it (resolved to a step number + anchor here).
+        steps_for_ref = data.get("steps") if isinstance(data.get("steps"), list) else []
+        id_to_num = {
+            s["id"]: i + 1
+            for i, s in enumerate(steps_for_ref)
+            if isinstance(s, dict) and s.get("id")
+        }
+        architecture = end_state.get("architecture")
+        if isinstance(architecture, list):
+            resolved = []
+            for entry in architecture:
+                if not isinstance(entry, dict):
+                    continue
+                component = _compact_text(entry.get("component"))
+                if not component:
+                    continue
+                num = id_to_num.get(entry.get("step_ref"))
+                resolved.append({
+                    "component": component,
+                    "summary": _compact_text(entry.get("summary")),
+                    "step_id": entry.get("step_ref") if num else "",
+                    "step_label": f"Step {num}" if num else "",
+                })
+            if resolved:
+                overview["_end_state_architecture"] = resolved
+        es_constraints = end_state.get("constraints")
+        if isinstance(es_constraints, list):
+            es_constraints = [str(c).strip() for c in es_constraints if _compact_text(c)]
+            if es_constraints:
+                overview["_end_state_constraints"] = es_constraints
     has_diagram_image = bool(
         overview.get("diagram_image")
         or overview.get("_diagram_image_light")
@@ -646,11 +678,26 @@ def prepare_data(data: dict) -> dict:
         else render_mermaid_svg(str(overview.get("diagram_mermaid") or ""))
     )
     steps = data.get("steps") if isinstance(data.get("steps"), list) else []
-    for step in steps:
+    any_es_order = False
+    for idx, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
         normalize_step_reasoning_items(step)
         step["_overview_teaser"] = derive_step_overview_teaser(step)
+        # Per-view ordering: the journey view keeps authored (chronological)
+        # order; the end-state view uses `end_state_order` so it can read as a
+        # reference (what -> how -> tradeoffs). Steps without an order trail in
+        # authored order (they are typically journey-only and hidden there).
+        step["_jy_order"] = idx + 1
+        es_order = step.get("end_state_order")
+        if isinstance(es_order, bool):
+            es_order = None
+        if isinstance(es_order, (int, float)):
+            step["_es_order"] = int(es_order)
+            any_es_order = True
+        else:
+            step["_es_order"] = 900 + idx
+    overview["_reorder"] = bool(any_es_order)
 
     indices = build_overview_indices(steps)
     overview["_decision_index"] = indices["decisions"]

@@ -86,7 +86,7 @@ def _has_grounded_source_ref(claims: object) -> bool:
     return False
 
 
-def validate_walkthrough(data: dict, *, max_steps: int = 20) -> QualityReport:
+def validate_walkthrough(data: dict, *, max_steps: int = 12) -> QualityReport:
     report = QualityReport()
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     overview = data.get("overview") if isinstance(data.get("overview"), dict) else {}
@@ -169,7 +169,7 @@ def validate_walkthrough(data: dict, *, max_steps: int = 20) -> QualityReport:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate finished walkthrough narrative quality")
     parser.add_argument("--input", required=True, help="Path to walkthrough.json")
-    parser.add_argument("--max-steps", type=int, default=20, help="Maximum final step count before failing")
+    parser.add_argument("--max-steps", type=int, default=12, help="Maximum final step count before failing")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable report")
     args = parser.parse_args()
 

@@ -85,7 +85,7 @@ class TestValidateWalkthroughQuality:
 
     def test_rejects_too_many_final_steps(self):
         data = _valid_walkthrough()
-        data["steps"] = [dict(data["steps"][0], id=f"step-{i}") for i in range(21)]
+        data["steps"] = [dict(data["steps"][0], id=f"step-{i}") for i in range(13)]
 
         report = validate_walkthrough(data)
 

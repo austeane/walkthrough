@@ -13,30 +13,43 @@ description: >-
 
 Generate walkthroughs that teach developers what was built, why, and how — from agent session histories.
 
-**Prime directive**: The walkthrough helps the developer understand their own codebase. It is NOT a transcript replay. If an agent did 100 things across 5 sessions, the walkthrough might be 8-12 steps. Compress, group, and editorialize. The right question is "what do I need to understand?" not "what happened chronologically?"
+**Prime directive**: The walkthrough helps the developer understand their own codebase. It is NOT a transcript replay. If an agent did 100 things across 5 sessions, the walkthrough might be 5-10 steps. Compress, group, and editorialize. The right question is "what does this reader need for this purpose?" not "what happened chronologically?"
+
+**Bias**: Prefer brevity and focus over completeness. A strong walkthrough deliberately omits low-signal changes, side quests, routine tool use, and repeated implementation detail. Cover the smallest set of concepts that lets the target reader accomplish the stated purpose.
 
 **Dependencies**: Scripts require `jinja2` and `pygments`. Optional: `pillow` (image compression for screenshots), `playwright` (Path B git-history captures). If using a project with `pyproject.toml`, prefix commands with `uv run` (e.g., `uv run python3 scripts/render_html.py ...`).
 
 ## Workflow
 
-### 1. Scoping Dialog
+### 1. Reader Frame + Scoping Dialog
 
-Ask the user what to walk through and for whom. Use AskUserQuestion:
+Ask the user for the reader frame before discovery unless the answer is self-evident from the prompt. Use AskUserQuestion when available; otherwise ask concise plain-text questions. Store these choices in your notes and in `meta` where possible (`scope`, `audience`, `purpose`, `detail_level`) so the editorial step can obey them.
 
-**Question 1 — Scope**: "What should this walkthrough cover?"
-- "Recent work" — Last 1-3 days of agent sessions in this project
-- "Specific sessions" — I'll point you to the session files
-- "Time range" — A custom date range
-- "Everything" — All agent sessions for this project
+If multiple fields are missing, ask them together rather than one at a time:
 
-**Question 2 — Audience**: "Who is this walkthrough for?"
+**Audience**: "Who is this walkthrough for?"
 - "Me (refresh)" — I built this but need to re-learn it
-- "Teammate" — Someone unfamiliar with this part of the codebase
+- "Teammate/team" — Someone unfamiliar with this part of the codebase
 - "Reviewer" — PR/code review context, focus on decisions and tradeoffs
 
-Store the audience choice — it affects narrative tone in step 7.
+**Level of detail**: "How deep should it go?"
+- "High-level" — Concepts, outcomes, and navigation pointers
+- "Technical detail" — Architecture, data flow, important files, and tricky code
+- "Both/toggleable" — High-level skim path with deeper technical detail available on demand
 
-**Question 3 — Screenshots**: "Should this walkthrough include screenshots?"
+**Purpose**: "What should the walkthrough help the reader do?"
+- "Onboard" — Build enough context to work in the area
+- "Understand what happened" — Regain the shape of recent work
+- "Review a concept/PR" — Evaluate decisions, tradeoffs, risks, and test evidence
+
+**Scope**: "What should it cover?"
+- "Specific feature/change" — The named feature, PR, branch, or change set
+- "Specific app area" — One subsystem, route, workflow, or integration
+- "Specific sessions/time range" — The selected session files or custom date range
+
+Avoid broad "everything" scope. If the user asks for everything, narrow it into a reader-centered slice before proceeding: what app area, what changed, or what decision they need to understand. Only produce an exhaustive walkthrough if the user explicitly asks for an archive-style artifact after you explain it will be less focused.
+
+**Screenshots**: "Should this walkthrough include screenshots?"
 - "No screenshots" — Text-only walkthrough (default)
 - "Extract from sessions" — Use screenshots already captured during agent work
 - "Capture from git history" — Reconstruct UI by checking out commits and screenshotting
@@ -202,6 +215,8 @@ Agent tool, model: "sonnet", subagent_type: "general-purpose"
 
 > You are summarizing a chunk of an agent session transcript for a code walkthrough.
 >
+> The final walkthrough will be brief and purpose-driven. Treat this chunk summary as raw material, not a requirement to cover everything. Preserve only the most important intent, causality, decisions, failures, files, and evidence that may matter to the target reader.
+>
 > Read the chunk file at: `{chunk_path}`
 >
 > Produce a JSON summary with this structure:
@@ -283,7 +298,7 @@ python3 scripts/merge_summaries.py \
 
 Fallback summaries extract files, commands, errors, and user intents directly from the chunk JSONL — no LLM needed. They emit schema-valid command/decision/error objects and produce narratives like `"chunk-011: 168 events. User intents: set up terraform. Files: main.tf, variables.tf. 4 commands run. 1 error."` instead of the old empty `"contains N events"` stubs.
 
-Read the draft, then apply editorial judgment: merge related steps, reorder for clarity, compress mechanical sequences, and add overview narrative. The orchestrator (you) has full editorial freedom. You receive all session summaries and decide: how many steps, what grouping, what order, what to emphasize, what to compress.
+Read the draft, then apply editorial judgment: merge related steps, reorder for clarity, compress mechanical sequences, and add overview narrative. The orchestrator (you) has full editorial freedom. You receive all session summaries and decide: how many steps, what grouping, what order, what to emphasize, what to omit, and what to compress.
 
 **Session cards as editorial context**: If `out/session-cards.json` exists (produced by `extract_session_cards.py` or `batch_pipeline.py`), pass it to the editorial agent alongside the draft. Cards give the editor a quick overview of all sessions — user intents, files touched, commands, errors, subagents — so it can make informed grouping decisions without reading every chunk summary in detail.
 
@@ -295,13 +310,33 @@ The cards are ~2KB each, so 50-60 cards fit in ~120KB — small enough to includ
 
 Read the walkthrough schema: `references/walkthrough-schema.md`
 
+**Editorial frame**:
+- **Audience** controls assumed context and tone.
+- **Purpose** controls what information earns space.
+- **Detail level** controls depth, not breadth.
+- **Scope** controls what gets excluded.
+
+Before writing final steps, state the frame to yourself in one sentence: "This walkthrough is for `<audience>`, at `<detail_level>`, to `<purpose>`, covering `<scope>`." If any piece is missing and not obvious, ask before final assembly.
+
 **Guidelines by audience**:
 - **Me (refresh)**: Be direct. Focus on "what changed and why." Skip obvious context.
-- **Teammate**: Explain architectural decisions. Include enough context to navigate the codebase.
+- **Teammate/team**: Explain architectural decisions. Include enough context to navigate the codebase.
 - **Reviewer**: Emphasize decisions, tradeoffs, and error handling. Call out anything that deserves scrutiny.
 
+**Guidelines by purpose**:
+- **Onboard**: Explain the concept map, ownership boundaries, and where to start reading. Skip deep diffs unless they reveal the core shape.
+- **Understand what happened**: Prioritize final outcomes, pivots, and the few implementation details needed to regain context.
+- **Review a concept/PR**: Prioritize decisions, risks, test evidence, edge cases, and unresolved questions.
+
+**Guidelines by detail level**:
+- **High-level**: 4-7 steps. Keep code details in key file links and collapsed evidence.
+- **Technical detail**: 6-10 steps. Include key data flows, APIs, schemas, and non-obvious implementation choices, but still omit routine edits.
+- **Both/toggleable**: Keep the visible skim path high-level; put technical depth in claims, decisions, gotchas, and collapsed evidence. Do not double the step count to satisfy both modes.
+
 **Assembly rules**:
-- 8-20 steps is typical. Fewer for simple features, more for complex multi-session work.
+- 5-10 steps is typical. Use 4-7 for high-level or narrow work. Use 10-12 only for genuinely complex, multi-session work. More than 12 final steps means the walkthrough is probably still a draft unless the user explicitly requested exhaustive coverage.
+- Each step must earn its place by serving the audience, purpose, and scope. If a step is only there because the agent did the work, cut or merge it.
+- Prefer one sharp walkthrough over a complete catalog. Leave routine commands, trivial file edits, exploratory dead ends, and duplicate screenshots out of the reader-facing narrative.
 - Group by concept or subsystem, not chronology, unless chronology IS the story.
 - Every step needs a `takeaway`: one declarative outcome sentence stating what changed and its net effect (distinct from the `title` topic and the `intent` why). This is the "broad shape" a reader scans first; the rendered page leads with it. **Skim test**: read the `takeaway` lines alone, top to bottom — they should form a complete, coherent summary of the whole session. If they don't, re-edit the steps until they do.
 - Every step needs at least one grounded claim with source_refs.
@@ -331,7 +366,7 @@ Run the finished-walkthrough quality gate before rendering or sharing:
 ```bash
 python3 scripts/validate_walkthrough_quality.py \
   --input out/walkthrough.json \
-  --max-steps 20
+  --max-steps 12
 ```
 
 If this fails, the artifact is still a draft. Re-edit instead of rendering a final HTML. The common failures are exactly the ones readers notice: `chunk-001: N events` titles, missing takeaways, no grounded claims, too many uncompressed steps, or non-reader-facing files like `/tmp`, `.env`, worklogs, or `~/.claude/plans` in overview key files. `merge_summaries --allow-fallback` is acceptable for an intermediate draft, but fallback chunk summaries must not survive into the final walkthrough.
