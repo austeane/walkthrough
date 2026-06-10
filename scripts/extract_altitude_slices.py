@@ -73,7 +73,11 @@ def _overview_lines(data: dict) -> list[str]:
                 component = entry.get("component", "")
                 summary = entry.get("summary", "")
                 lines.append(f"- {component}: {summary}".rstrip(": "))
-        constraints = [c for c in _as_list(end_state.get("constraints")) if isinstance(c, str)]
+        constraints = [
+            text
+            for c in _as_list(end_state.get("constraints"))
+            if (text := _text(c, "text"))
+        ]
         if constraints:
             lines.append("")
             lines.append("Current constraints:")

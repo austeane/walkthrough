@@ -70,3 +70,15 @@ def test_cli_writes_both_slices(tmp_path: Path):
     )
     assert (out_dir / "skim.md").read_text(encoding="utf-8").startswith("# Skim slice")
     assert "Claims:" in (out_dir / "scan.md").read_text(encoding="utf-8")
+
+
+def test_skim_includes_object_form_constraints():
+    import copy
+    data = copy.deepcopy(SAMPLE)
+    data["overview"]["end_state"]["constraints"] = [
+        {"text": "p99 is proven only to 1,000 TPS.", "step_ref": "step-2"},
+        "Refresh tokens rotate weekly.",
+    ]
+    skim = build_skim(data)
+    assert "p99 is proven only to 1,000 TPS." in skim
+    assert "Refresh tokens rotate weekly." in skim
