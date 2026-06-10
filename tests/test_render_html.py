@@ -550,6 +550,45 @@ class TestRenderHtml:
         assert "fonts.googleapis.com" not in html
         assert "cdn.jsdelivr.net" not in html
 
+    def test_render_includes_safe_glossary_tooltip_support(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {
+                "goal": "IaC foundation",
+                "summary": ["IaC keeps GCP resources reviewable from src/app.py."],
+            },
+            "glossary": [
+                {
+                    "term": "IaC",
+                    "expanded": "Infrastructure as Code",
+                    "definition": "</script><script>alert(1)</script>",
+                    "aliases": ["Infrastructure as Code"],
+                },
+                {
+                    "term": "src/app.py",
+                    "definition": "Entry point for the app.",
+                    "file": "src/app.py",
+                }
+            ],
+            "steps": [],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert "glossary-term" in html
+        assert "glossary-term--link" in html
+        assert "githubFileHref" in html
+        assert "initGlossary()" in html
+        assert "createTreeWalker" in html
+        assert "Infrastructure as Code" in html
+        assert "src/app.py" in html
+        assert "</script><script>alert(1)</script>" not in html
+        assert "<\\/script><script>alert(1)<\\/script>" in html
+
     def test_render_inlines_rendered_mermaid_svg(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         def fake_render_mermaid_svg(_: str) -> str:
             return "<svg class=\"mermaid-svg\" viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\" /></svg>"

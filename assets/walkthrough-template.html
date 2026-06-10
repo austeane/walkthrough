@@ -882,6 +882,70 @@
         .lightbox-next { right: 1rem; }
 
         /* =========================================================
+           GLOSSARY TERMS
+           ========================================================= */
+        .glossary-term {
+            position: relative;
+            color: var(--accent-2);
+            border-bottom: 1px dotted color-mix(in srgb, var(--accent-2) 70%, transparent);
+            cursor: help;
+            text-decoration: none;
+            font-weight: inherit;
+        }
+        .glossary-term--link { cursor: pointer; }
+        .glossary-term--link:hover { color: var(--accent); }
+        .glossary-term::before,
+        .glossary-term::after {
+            position: absolute;
+            left: 50%;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.16s var(--ease), transform 0.16s var(--ease);
+            z-index: 950;
+        }
+        .glossary-term::before {
+            content: "";
+            bottom: calc(100% + 0.24rem);
+            width: 0.7rem;
+            height: 0.7rem;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            transform: translate(-50%, 0.35rem) rotate(45deg);
+        }
+        .glossary-term::after {
+            content: attr(data-glossary-tooltip);
+            bottom: calc(100% + 0.55rem);
+            width: max-content;
+            max-width: min(24rem, 78vw);
+            padding: 0.65rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--surface);
+            color: var(--text);
+            box-shadow: var(--shadow-lg);
+            font-family: var(--font-body);
+            font-size: 0.78rem;
+            font-weight: 500;
+            letter-spacing: 0;
+            line-height: 1.35;
+            text-align: left;
+            white-space: pre-wrap;
+            transform: translate(-50%, 0.35rem);
+        }
+        .glossary-term:hover::before,
+        .glossary-term:hover::after,
+        .glossary-term:focus-visible::before,
+        .glossary-term:focus-visible::after {
+            opacity: 1;
+            transform: translate(-50%, 0) rotate(45deg);
+        }
+        .glossary-term:hover::after,
+        .glossary-term:focus-visible::after {
+            transform: translate(-50%, 0);
+        }
+
+        /* =========================================================
            REVEAL ANIMATION
            ========================================================= */
         .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.6s var(--ease), transform 0.6s var(--ease); }
@@ -926,6 +990,8 @@
             :root { --sidebar-w: 0px; --header-h: 0px; }
             .sidebar, .topbar, .progress, .deck-viewport, .lightbox,
             .copy-btn, .copy-link, .hamburger { display: none !important; }
+            .glossary-term { color: inherit; border-bottom: none; }
+            .glossary-term::before, .glossary-term::after { display: none; }
             body { background: #fff; color: #000; }
             .reading-view { display: block !important; margin: 0; padding: 0; }
             .overview::before, .overview::after { display: none; }
@@ -1637,6 +1703,7 @@
             this.initExpandAll();
             this.initCopy();
             this.initMediaGalleries();
+            this.initGlossary();
             this.initLightbox();
             this.initKeyboard();
             this.initPrint();
@@ -1810,6 +1877,159 @@
                     this.reading.scrollToStep(visible[0], { updateHash: false });
                 }
             });
+        }
+
+        /* --- Glossary: safely annotate jargon/acronyms in narrative text --- */
+        initGlossary() {
+            const raw = (DATA && (DATA.glossary || (DATA.overview && DATA.overview.glossary))) || [];
+            const entries = this.normalizeGlossary(raw);
+            if (!entries.length) return;
+
+            const targetSelector = [
+                '.hero__title', '.hero__summary', '.es-summary', '.es-architecture', '.es-constraints',
+                '.jump-card__t', '.jump-card__d', '.step-title', '.step-takeaway', '.step-intent',
+                '.claim', '.callout__title', '.callout__body', '.reasoning-map__item',
+                '.slide__title', '.slide__takeaway', '.slide__intent', '.slide__summary', '.slide__claim',
+                '.slide__file'
+            ].join(',');
+            [document.querySelector('.reading-view'), document.querySelector('.deck-viewport')]
+                .filter(Boolean)
+                .forEach(container => {
+                    const seen = new Map(entries.map(entry => [entry.key, 0]));
+                    container.querySelectorAll(targetSelector)
+                        .forEach(target => this.annotateGlossaryTarget(target, entries, seen));
+                });
+        }
+
+        normalizeGlossary(raw) {
+            const list = Array.isArray(raw)
+                ? raw
+                : Object.entries(raw || {}).map(([term, value]) => {
+                    if (typeof value === 'string') return { term, definition: value };
+                    return Object.assign({ term }, value || {});
+                });
+            const byKey = new Map();
+            list.forEach((entry) => {
+                if (!entry) return;
+                const term = String(entry.term || entry.label || '').trim();
+                const definition = String(entry.definition || entry.description || '').trim();
+                const expanded = String(entry.expanded || entry.expansion || '').trim();
+                if (!term || (!definition && !expanded)) return;
+                const aliases = Array.isArray(entry.aliases) ? entry.aliases : [];
+                const patterns = [term, ...aliases]
+                    .map(v => String(v || '').trim())
+                    .filter(v => v.length >= 2);
+                if (!patterns.length) return;
+                const key = term.toLowerCase();
+                if (byKey.has(key)) return;
+                const title = expanded && expanded.toLowerCase() !== term.toLowerCase()
+                    ? term + ' = ' + expanded
+                    : term;
+                const tooltip = definition ? title + '\n' + definition : title;
+                const href = this.normalizeGlossaryHref(entry);
+                const defaultMax = href ? 20 : 4;
+                byKey.set(key, {
+                    key,
+                    term,
+                    tooltip,
+                    href,
+                    regex: this.glossaryRegex(patterns),
+                    max: Number.isFinite(entry.max_occurrences) ? Math.max(1, entry.max_occurrences) : defaultMax,
+                });
+            });
+            return Array.from(byKey.values()).sort((a, b) => b.term.length - a.term.length);
+        }
+
+        normalizeGlossaryHref(entry) {
+            const direct = String(entry.href || entry.url || '').trim();
+            if (direct) return direct;
+            const file = String(entry.file || entry.github_path || entry.path || '').trim();
+            if (!file) return '';
+            return this.githubFileHref(file, entry.github_ref || entry.ref);
+        }
+
+        githubFileHref(filePath, ref) {
+            const meta = DATA && DATA.meta ? DATA.meta : {};
+            const repo = String(meta.repo || '').trim()
+                .replace(/^https?:\/\/github\.com\//, '')
+                .replace(/^github\.com\//, '')
+                .replace(/\.git$/, '')
+                .replace(/^\/+|\/+$/g, '');
+            if (!/^[^/]+\/[^/]+$/.test(repo)) return '';
+            const branch = String(ref || ((meta.git && (meta.git.branch || meta.git.commit)) || 'main')).trim() || 'main';
+            const cleanPath = String(filePath || '').replace(/^\.?\//, '').replace(/^\/+/, '');
+            if (!cleanPath) return '';
+            const path = cleanPath.split('/').map(part => encodeURIComponent(part)).join('/');
+            return 'https://github.com/' + repo + '/blob/' + encodeURI(branch) + '/' + path;
+        }
+
+        glossaryRegex(patterns) {
+            const escaped = patterns
+                .sort((a, b) => b.length - a.length)
+                .map(v => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+            return new RegExp('(^|[^A-Za-z0-9_])(' + escaped.join('|') + ')(?=$|[^A-Za-z0-9_])', 'gi');
+        }
+
+        annotateGlossaryTarget(target, entries, seen) {
+            const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT, {
+                acceptNode: (node) => {
+                    if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+                    const parent = node.parentElement;
+                    if (!parent || parent.closest('code, pre, kbd, samp, a, button, input, textarea, .glossary-term, .diff, .cmd')) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            });
+            const nodes = [];
+            while (walker.nextNode()) nodes.push(walker.currentNode);
+            nodes.forEach(node => this.annotateGlossaryTextNode(node, entries, seen));
+        }
+
+        annotateGlossaryTextNode(node, entries, seen) {
+            let text = node.nodeValue;
+            const frag = document.createDocumentFragment();
+            let changed = false;
+
+            while (text) {
+                let best = null;
+                entries.forEach(entry => {
+                    if ((seen.get(entry.key) || 0) >= entry.max) return;
+                    entry.regex.lastIndex = 0;
+                    const match = entry.regex.exec(text);
+                    if (!match) return;
+                    const prefixLen = match[1] ? match[1].length : 0;
+                    const index = match.index + prefixLen;
+                    if (!best || index < best.index || (index === best.index && match[2].length > best.match[2].length)) {
+                        best = { entry, match, index, prefixLen };
+                    }
+                });
+                if (!best) {
+                    frag.appendChild(document.createTextNode(text));
+                    break;
+                }
+                if (best.index > 0) frag.appendChild(document.createTextNode(text.slice(0, best.index)));
+                const termText = best.match[2];
+                const el = document.createElement(best.entry.href ? 'a' : 'span');
+                el.className = 'glossary-term' + (best.entry.href ? ' glossary-term--link' : '');
+                el.textContent = termText;
+                if (best.entry.href) {
+                    el.href = best.entry.href;
+                    el.target = '_blank';
+                    el.rel = 'noreferrer';
+                } else {
+                    el.tabIndex = 0;
+                    el.setAttribute('role', 'term');
+                }
+                el.setAttribute('aria-label', best.entry.tooltip.replace(/\s+/g, ' '));
+                el.dataset.glossaryTooltip = best.entry.tooltip;
+                frag.appendChild(el);
+                seen.set(best.entry.key, (seen.get(best.entry.key) || 0) + 1);
+                text = text.slice(best.index + termText.length);
+                changed = true;
+            }
+
+            if (changed && node.parentNode) node.parentNode.replaceChild(frag, node);
         }
 
         /* --- Expand / collapse all evidence --- */

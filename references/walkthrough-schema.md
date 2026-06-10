@@ -9,6 +9,7 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
   "version": "0.1.0",
   "meta": { ... },
   "overview": { ... },
+  "glossary": [ ... ],
   "steps": [ ... ]
 }
 ```
@@ -18,6 +19,7 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
 | `version` | string | Schema version (semver) |
 | `meta` | object | Generation metadata |
 | `overview` | object | High-level summary of what was built |
+| `glossary` | array or object | Optional acronym/jargon definitions that the HTML viewer turns into hover/focus tooltips in narrative prose |
 | `steps` | array | Ordered walkthrough steps |
 
 ## Meta
@@ -57,6 +59,38 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
 | `purpose` | string | Why the walkthrough exists, e.g. `"onboard"`, `"understand"`, or `"review"`. Used to decide what earns space. |
 | `detail_level` | string | Desired depth, e.g. `"high-level"`, `"technical"`, or `"both/toggleable"`. Controls depth, not breadth. |
 | `media_mode` | string | Screenshot mode: `"none"`, `"extract"`, `"capture"`, or `"both"` |
+
+## Glossary
+
+Use `glossary` for acronyms, product names, and project shorthand that a new teammate may not know. The HTML viewer annotates matching terms in prose after load, so normal text escaping still applies and glossary terms are not injected into code blocks, diffs, commands, links, or controls.
+
+```json
+[
+  {
+    "term": "WIF",
+    "expanded": "Workload Identity Federation",
+    "definition": "Keyless GitHub Actions authentication into GCP.",
+    "aliases": ["Workload Identity Federation"]
+  },
+  {
+    "term": "infra/root.hcl",
+    "definition": "Shared Terragrunt keystone that generates backend, provider, versions, and encryption blocks for every unit.",
+    "file": "infra/root.hcl"
+  }
+]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `term` | string | Primary acronym, jargon term, or project shorthand to annotate |
+| `expanded` | string | Optional expansion shown as `term = expansion` in the tooltip |
+| `definition` | string | Short explanation for a new reader |
+| `aliases` | array | Optional additional spellings that use the same tooltip |
+| `href` | string | Optional explicit link. When present, the rendered term is an anchor, so Cmd/Ctrl-click opens the target in a new tab. |
+| `file` | string | Optional repo-relative file path. When `href` is absent, the viewer builds a GitHub `blob` link from `meta.repo` and `meta.git.branch` or `meta.git.commit`. |
+| `github_path` | string | Alias for `file` when callers want to make the GitHub intent explicit |
+| `github_ref` | string | Optional branch, tag, or commit override for generated GitHub file links |
+| `max_occurrences` | number | Optional cap per term per rendered view; defaults to 4 for plain terms and 20 for linked terms |
 
 ## Overview
 
