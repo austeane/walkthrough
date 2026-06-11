@@ -1941,6 +1941,7 @@
                 if (q && visible.length && !visible.some(s => parseInt(s.dataset.step, 10) === this.reading.currentStep)) {
                     this.reading.scrollToStep(visible[0], { updateHash: false });
                 }
+                this.syncExpandAllLabel();
             });
         }
 
@@ -2174,14 +2175,16 @@
                     if (zone.classList.contains('clamped')) {
                         zone.dataset.clampUser = 'open';
                         this.setClamped(zone, false);
+                        this.syncExpandAllLabel();
                     } else {
                         delete zone.dataset.clampUser;
-                        this.setClamped(zone, true);
+                        // Route through applyClamps so a side-by-side column
+                        // re-balances flush instead of snapping to raw budget.
+                        this.applyClamps();
                         if (zone.getBoundingClientRect().top < 0) {
                             zone.scrollIntoView({ block: 'start', behavior: 'auto' });
                         }
                     }
-                    this.syncExpandAllLabel();
                 });
                 // Inside the zone: inherits the view filter, and grid layouts
                 // can't auto-place it into a neighboring column.
@@ -2222,10 +2225,20 @@
             }
         }
 
-        /* --- Expand / collapse all evidence + clamped zones --- */
+        /* --- Expand / collapse all evidence + clamped zones ---
+           Only VISIBLE elements count and are acted on: content hidden by
+           search or the view filter must not drive the label or get expanded
+           behind the reader's back. --- */
+        visibleEvidence() {
+            return Array.from(document.querySelectorAll('details.evidence'))
+                .filter(d => d.getClientRects().length);
+        }
+        visibleClampZones() {
+            return (this.clampZones || []).filter(z => z.getClientRects().length);
+        }
         anythingClosed() {
-            return Array.from(document.querySelectorAll('details.evidence')).some(d => !d.open) ||
-                (this.clampZones || []).some(z => z.classList.contains('clamped'));
+            return this.visibleEvidence().some(d => !d.open) ||
+                this.visibleClampZones().some(z => z.classList.contains('clamped'));
         }
         syncExpandAllLabel() {
             const btn = document.getElementById('expandAll');
@@ -2235,8 +2248,8 @@
             const btn = document.getElementById('expandAll');
             btn.addEventListener('click', () => {
                 const anyClosed = this.anythingClosed();
-                document.querySelectorAll('details.evidence').forEach(d => { d.open = anyClosed; });
-                (this.clampZones || []).forEach(zone => {
+                this.visibleEvidence().forEach(d => { d.open = anyClosed; });
+                this.visibleClampZones().forEach(zone => {
                     if (anyClosed) {
                         zone.dataset.clampUser = 'open';
                         this.setClamped(zone, false);
