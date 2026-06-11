@@ -226,6 +226,11 @@ def _estimate_overview_px(overview: dict) -> float:
 
     es_px = _px(end_state.get("goal") or overview.get("goal"), _PX_HERO)
     es_px += bullets_px(end_state.get("summary") or overview.get("summary"), _PX_LEAD)
+    # The architecture panel and constraints list are clamp-bounded by the
+    # viewer (0.8 / 0.6 of a viewport) — and constraints are explicitly exempt
+    # from the brevity bias, so the lint must not push authors to thin them.
+    # Count them at their rendered ceilings; the author's concision surface
+    # is the goal sentence and the summary bullets.
     architecture = end_state.get("architecture")
     if isinstance(architecture, list):
         card_px = 0.0
@@ -233,13 +238,12 @@ def _estimate_overview_px(overview: dict) -> float:
             if isinstance(card, dict):
                 card_px += _ARCH_CARD_FIXED_PX + _px(card.get("component"), _PX_BODY)
                 card_px += _px(card.get("summary"), _PX_BODY)
-        es_px += card_px / 2  # two-column grid
-    es_px += bullets_px(end_state.get("constraints"), _PX_BODY)
+        es_px += min(card_px / 2, 0.8 * SCREEN_PX)  # two-column grid, clamped
+    es_px += min(bullets_px(end_state.get("constraints"), _PX_BODY), 0.6 * SCREEN_PX)
 
-    px = 260.0 + max(journey_px, es_px)  # eyebrow + stat strip + margins
-    if overview.get("video"):
-        px += _VIDEO_PX
-    return px
+    # The video is deliberately NOT counted: it is the displacement vehicle,
+    # not prose, and counting it would penalize adding one.
+    return 260.0 + max(journey_px, es_px)  # eyebrow + stat strip + margins
 
 
 def _validate_density(data: dict, report: QualityReport) -> None:
@@ -275,13 +279,11 @@ def _validate_density(data: dict, report: QualityReport) -> None:
             f"overview skim band is ~{estimate / SCREEN_PX:.1f} screens tall (budget {STEP_SCREEN_BUDGET:.0f}) — "
             "trim summary bullets and constraint wording (keep the measured numbers; cut connective prose)"
         )
-    if overview.get("video"):
-        ov_prose = _estimate_overview_px({**overview, "video": None})
-        if ov_prose > budget * 0.6:
-            report.add_warning(
-                "overview carries a video but the skim band is still "
-                f"~{ov_prose / SCREEN_PX:.1f} screens of prose — the video should displace text"
-            )
+    if overview.get("video") and estimate > budget * 0.6:
+        report.add_warning(
+            "overview carries a video but the skim band is still "
+            f"~{estimate / SCREEN_PX:.1f} screens of prose — the video should displace text"
+        )
 
 
 def _validate_media_presence(data: dict, report: QualityReport, *, base_dir: str | None) -> None:
