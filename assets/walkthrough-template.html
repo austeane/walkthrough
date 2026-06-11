@@ -1805,6 +1805,9 @@
             } else if (fromUser) {
                 this.reading.goToStep(this.deck.index || 0);
             }
+            // Clamp zones measure 0 while the reading view is display:none (a
+            // page restored straight into present mode); re-measure on return.
+            if (mode !== 'present') requestAnimationFrame(() => this.applyClamps());
         }
 
         /* --- View (end state / journey) ---
@@ -2115,12 +2118,20 @@
         }
         applyClamps() {
             (this.clampZones || []).forEach(zone => {
+                // A zone hidden by the view filter (or any display:none ancestor)
+                // must not leave its sibling toggle orphaned on screen, and
+                // measuring it would read 0 anyway.
+                if (!zone.getClientRects().length) {
+                    if (zone._clampBtn) zone._clampBtn.style.display = 'none';
+                    return;
+                }
                 if (zone.dataset.clampUser === 'open') { this.setClamped(zone, false); return; }
                 const budget = this.clampBudget(zone);
                 // scrollHeight reports full content height even while clamped;
                 // the slack keeps borderline zones from clamping a few lines.
                 this.setClamped(zone, zone.scrollHeight > budget + 140, budget);
             });
+            this.syncExpandAllLabel();
         }
         setClamped(zone, on, budget) {
             let btn = zone._clampBtn;
@@ -2128,6 +2139,10 @@
                 btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'clamp-toggle';
+                // The toggle lives outside the zone; inherit its view tag so the
+                // End State/Journey filter hides them together.
+                const viewTag = zone.getAttribute('data-view-tag');
+                if (viewTag) btn.setAttribute('data-view-tag', viewTag);
                 btn.addEventListener('click', () => {
                     if (zone.classList.contains('clamped')) {
                         zone.dataset.clampUser = 'open';
@@ -2139,6 +2154,7 @@
                             zone.scrollIntoView({ block: 'start', behavior: 'auto' });
                         }
                     }
+                    this.syncExpandAllLabel();
                 });
                 zone.insertAdjacentElement('afterend', btn);
                 zone._clampBtn = btn;
@@ -2172,18 +2188,25 @@
             if (zone && zone.classList.contains('clamped')) {
                 zone.dataset.clampUser = 'open';
                 this.setClamped(zone, false);
+                this.syncExpandAllLabel();
                 requestAnimationFrame(() => target.scrollIntoView({ block: 'center' }));
             }
         }
 
         /* --- Expand / collapse all evidence + clamped zones --- */
+        anythingClosed() {
+            return Array.from(document.querySelectorAll('details.evidence')).some(d => !d.open) ||
+                (this.clampZones || []).some(z => z.classList.contains('clamped'));
+        }
+        syncExpandAllLabel() {
+            const btn = document.getElementById('expandAll');
+            if (btn) btn.textContent = this.anythingClosed() ? 'Expand all' : 'Collapse all';
+        }
         initExpandAll() {
             const btn = document.getElementById('expandAll');
             btn.addEventListener('click', () => {
-                const all = Array.from(document.querySelectorAll('details.evidence'));
-                const anyClosed = all.some(d => !d.open) ||
-                    (this.clampZones || []).some(z => z.classList.contains('clamped'));
-                all.forEach(d => { d.open = anyClosed; });
+                const anyClosed = this.anythingClosed();
+                document.querySelectorAll('details.evidence').forEach(d => { d.open = anyClosed; });
                 (this.clampZones || []).forEach(zone => {
                     if (anyClosed) {
                         zone.dataset.clampUser = 'open';
@@ -2193,8 +2216,11 @@
                     }
                 });
                 if (!anyClosed) this.applyClamps();
-                btn.textContent = anyClosed ? 'Collapse all' : 'Expand all';
+                this.syncExpandAllLabel();
             });
+            // Manual <details> toggles also feed the label ('toggle' doesn't
+            // bubble, but it does capture).
+            document.addEventListener('toggle', () => this.syncExpandAllLabel(), true);
         }
 
         /* --- Print: evidence is collapsed on screen, but a PDF should carry the

@@ -208,15 +208,24 @@ def _estimate_step_px(step: dict, *, include_video: bool = True) -> float:
 def _estimate_overview_px(overview: dict) -> float:
     """Skim-band volume of the overview (hero + end-state blocks). Bounded
     blocks the template caps or clamps independently (diagram, jump grid,
-    reasoning maps) are excluded — this measures what authors control."""
-    px = 260.0  # eyebrow + stat strip + margins
-    px += _px(overview.get("goal"), _PX_HERO)
+    reasoning maps) are excluded — this measures what authors control.
+    The viewer shows ONE view at a time (journey vs end-state), so the
+    estimate is the taller view, not the sum of both."""
     end_state = overview.get("end_state") if isinstance(overview.get("end_state"), dict) else {}
-    px += _px(end_state.get("goal"), _PX_HERO) * 0.5  # only one hero shows per view
-    for source in (overview.get("summary"), end_state.get("summary")):
+
+    def bullets_px(source: object, coeff: float) -> float:
+        total = 0.0
         if isinstance(source, list):
             for item in source:
-                px += _BULLET_FIXED_PX + _px(item, _PX_LEAD)
+                text = item.get("text") if isinstance(item, dict) else item
+                total += _BULLET_FIXED_PX + _px(text, coeff)
+        return total
+
+    journey_px = _px(overview.get("goal"), _PX_HERO)
+    journey_px += bullets_px(overview.get("summary"), _PX_LEAD)
+
+    es_px = _px(end_state.get("goal") or overview.get("goal"), _PX_HERO)
+    es_px += bullets_px(end_state.get("summary") or overview.get("summary"), _PX_LEAD)
     architecture = end_state.get("architecture")
     if isinstance(architecture, list):
         card_px = 0.0
@@ -224,12 +233,10 @@ def _estimate_overview_px(overview: dict) -> float:
             if isinstance(card, dict):
                 card_px += _ARCH_CARD_FIXED_PX + _px(card.get("component"), _PX_BODY)
                 card_px += _px(card.get("summary"), _PX_BODY)
-        px += card_px / 2  # two-column grid
-    constraints = end_state.get("constraints")
-    if isinstance(constraints, list):
-        for item in constraints:
-            text = item.get("text") if isinstance(item, dict) else item
-            px += _BULLET_FIXED_PX + _px(text, _PX_BODY)
+        es_px += card_px / 2  # two-column grid
+    es_px += bullets_px(end_state.get("constraints"), _PX_BODY)
+
+    px = 260.0 + max(journey_px, es_px)  # eyebrow + stat strip + margins
     if overview.get("video"):
         px += _VIDEO_PX
     return px
