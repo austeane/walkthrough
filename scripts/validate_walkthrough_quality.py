@@ -135,6 +135,206 @@ MONOCULTURE_CLAIM_FLOOR = 20
 GLOSSARY_MAX_ENTRIES = 50
 GLOSSARY_MAX_DEFINITION_CHARS = 300
 
+# --- Height budget (proxy) ---
+# The reading view should present any step within ~two laptop screens. The
+# template clamps overflowing zones behind "Show more", but the clamp is the
+# safety net — the authoring fix is concision and plain language. We estimate
+# rendered height from text volume: px-per-character coefficients per text
+# band (large title fonts cost more vertical space per character than body
+# prose) plus fixed per-block costs, calibrated against rendered artifacts.
+SCREEN_PX = 900                    # one laptop screen of content
+STEP_SCREEN_BUDGET = 2.0           # two screens per step
+_PX_TITLE = 1.0                    # step title (large font, short measure)
+_PX_LEAD = 0.45                    # takeaway / intent (lead fonts)
+_PX_BODY = 0.34                    # claims, callouts, constraints (body font)
+_PX_HERO = 2.2                     # overview hero title (display font)
+_STEP_FIXED_PX = 300               # eyebrow, margins, section padding
+_CLAIM_FIXED_PX = 16
+_CALLOUT_FIXED_PX = 110            # callout padding + label + spacing
+_ALT_FIXED_PX = 10
+_BULLET_FIXED_PX = 12
+_ARCH_CARD_FIXED_PX = 120
+_DIAGRAM_PX = 560                  # in-flow diagram figure (capped by CSS)
+_VIDEO_PX = 480                    # in-flow video block
+_FILES_ROW_PX = 90
+_EVIDENCE_ROW_PX = 60
+
+
+def _px(text: object, coeff: float) -> float:
+    return len(_as_text(text)) * coeff
+
+
+def _estimate_step_px(step: dict, *, include_video: bool = True) -> float:
+    px = _STEP_FIXED_PX
+    px += _px(step.get("title"), _PX_TITLE)
+    px += _px(step.get("takeaway"), _PX_LEAD)
+    px += _px(step.get("intent"), _PX_LEAD)
+    claims = step.get("claims") if isinstance(step.get("claims"), list) else []
+    for claim in claims:
+        if isinstance(claim, dict):
+            px += _CLAIM_FIXED_PX + _px(claim.get("text"), _PX_BODY)
+    decisions = step.get("decisions") if isinstance(step.get("decisions"), list) else []
+    for decision in decisions:
+        if isinstance(decision, dict):
+            px += _CALLOUT_FIXED_PX
+            px += _px(decision.get("decision"), _PX_BODY)
+            px += _px(decision.get("rationale"), _PX_BODY)
+            alts = decision.get("alternatives_considered")
+            if isinstance(alts, list):
+                for alt in alts:
+                    px += _ALT_FIXED_PX + _px(alt, _PX_BODY)
+        elif isinstance(decision, str):
+            px += _CALLOUT_FIXED_PX + _px(decision, _PX_BODY)
+    gotchas = step.get("errors_encountered") if isinstance(step.get("errors_encountered"), list) else []
+    for gotcha in gotchas:
+        if isinstance(gotcha, dict):
+            px += _CALLOUT_FIXED_PX
+            px += _px(gotcha.get("error"), _PX_BODY)
+            px += _px(gotcha.get("resolution"), _PX_BODY)
+        elif isinstance(gotcha, str):
+            px += _CALLOUT_FIXED_PX + _px(gotcha, _PX_BODY)
+    if step.get("diagram"):
+        px += _DIAGRAM_PX
+    if include_video and step.get("video"):
+        px += _VIDEO_PX
+    evidence = step.get("evidence") if isinstance(step.get("evidence"), dict) else {}
+    if evidence.get("files_changed"):
+        px += _FILES_ROW_PX
+    if evidence:
+        px += _EVIDENCE_ROW_PX
+    return px
+
+
+def _estimate_overview_px(overview: dict) -> float:
+    """Skim-band volume of the overview (hero + end-state blocks). Bounded
+    blocks the template caps or clamps independently (diagram, jump grid,
+    reasoning maps) are excluded — this measures what authors control."""
+    px = 260.0  # eyebrow + stat strip + margins
+    px += _px(overview.get("goal"), _PX_HERO)
+    end_state = overview.get("end_state") if isinstance(overview.get("end_state"), dict) else {}
+    px += _px(end_state.get("goal"), _PX_HERO) * 0.5  # only one hero shows per view
+    for source in (overview.get("summary"), end_state.get("summary")):
+        if isinstance(source, list):
+            for item in source:
+                px += _BULLET_FIXED_PX + _px(item, _PX_LEAD)
+    architecture = end_state.get("architecture")
+    if isinstance(architecture, list):
+        card_px = 0.0
+        for card in architecture:
+            if isinstance(card, dict):
+                card_px += _ARCH_CARD_FIXED_PX + _px(card.get("component"), _PX_BODY)
+                card_px += _px(card.get("summary"), _PX_BODY)
+        px += card_px / 2  # two-column grid
+    constraints = end_state.get("constraints")
+    if isinstance(constraints, list):
+        for item in constraints:
+            text = item.get("text") if isinstance(item, dict) else item
+            px += _BULLET_FIXED_PX + _px(text, _PX_BODY)
+    if overview.get("video"):
+        px += _VIDEO_PX
+    return px
+
+
+def _validate_density(data: dict, report: QualityReport) -> None:
+    """Two-screen height budget (warnings only): flag steps and an overview
+    whose estimated rendered height exceeds the budget. The viewer clamps the
+    overflow behind "Show more", so nothing breaks — but a step that needs the
+    clamp usually needs editing: split it, move detail down a rung (claims →
+    evidence), or tighten the prose to plain language."""
+    steps = data.get("steps") if isinstance(data.get("steps"), list) else []
+    budget = SCREEN_PX * STEP_SCREEN_BUDGET
+    for index, step in enumerate(steps, start=1):
+        if not isinstance(step, dict):
+            continue
+        estimate = _estimate_step_px(step)
+        if estimate > budget:
+            screens = estimate / SCREEN_PX
+            report.add_warning(
+                f"step {index} is ~{screens:.1f} screens tall (budget {STEP_SCREEN_BUDGET:.0f}) — "
+                "split the step, demote detail to evidence, or tighten to plain language; "
+                "the viewer will clamp it behind 'Show more' as a last resort"
+            )
+        if step.get("video"):
+            prose = _estimate_step_px(step, include_video=False)
+            if prose > budget * 0.6:
+                report.add_warning(
+                    f"step {index} carries a video but still ~{prose / SCREEN_PX:.1f} screens of prose — "
+                    "a video should displace text, not sit on top of it"
+                )
+    overview = data.get("overview") if isinstance(data.get("overview"), dict) else {}
+    estimate = _estimate_overview_px(overview)
+    if estimate > budget:
+        report.add_warning(
+            f"overview skim band is ~{estimate / SCREEN_PX:.1f} screens tall (budget {STEP_SCREEN_BUDGET:.0f}) — "
+            "trim summary bullets and constraint wording (keep the measured numbers; cut connective prose)"
+        )
+    if overview.get("video"):
+        ov_prose = _estimate_overview_px({**overview, "video": None})
+        if ov_prose > budget * 0.6:
+            report.add_warning(
+                "overview carries a video but the skim band is still "
+                f"~{ov_prose / SCREEN_PX:.1f} screens of prose — the video should displace text"
+            )
+
+
+def _validate_media_presence(data: dict, report: QualityReport, *, base_dir: str | None) -> None:
+    """Presence + integrity lints (warnings only): glossary and an architecture
+    diagram are near-universal defaults; video files must resolve on disk."""
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    overview = data.get("overview") if isinstance(data.get("overview"), dict) else {}
+    steps = data.get("steps") if isinstance(data.get("steps"), list) else []
+    repo_root = _as_text(meta.get("repo_root")).rstrip("/")
+
+    raw_glossary = data.get("glossary", overview.get("glossary"))
+    entries, _ = _normalize_glossary(raw_glossary) if isinstance(raw_glossary, (list, dict)) else ([], 0)
+    if not entries:
+        audience = _as_text(meta.get("audience")).lower()
+        hint = (
+            " (teammate/onboard audiences expect one)"
+            if audience in {"teammate", "team", "onboard"}
+            else ""
+        )
+        report.add_warning(
+            "no glossary — nearly every walkthrough benefits from hover definitions for "
+            "its acronyms, codenames, and load-bearing file paths" + hint
+        )
+
+    has_diagram = bool(
+        overview.get("diagram_image")
+        or _as_text(overview.get("diagram_mermaid"))
+        or any(isinstance(s, dict) and s.get("diagram") for s in steps)
+    )
+    if not has_diagram:
+        report.add_warning(
+            "no architecture diagram — almost all walkthroughs should carry one "
+            "(prefer a LikeC4 export in overview.diagram_image)"
+        )
+
+    def check_video(spec: object, label: str) -> None:
+        if not spec:
+            return
+        if isinstance(spec, str):
+            spec = {"src": spec}
+        if not isinstance(spec, dict):
+            report.add_warning(f"{label} video must be a path or an object with src")
+            return
+        src = _as_text(spec.get("src"))
+        if not src:
+            report.add_warning(f"{label} video has no src")
+            return
+        if not src.startswith(("http://", "https://")) and base_dir is not None:
+            if _resolve_ref_path(src, base_dir, repo_root) is None:
+                report.add_warning(f"{label} video src does not resolve on disk: {src}")
+        poster = _as_text(spec.get("poster"))
+        if poster and base_dir is not None:
+            if _resolve_ref_path(poster, base_dir, repo_root) is None:
+                report.add_warning(f"{label} video poster does not resolve on disk: {poster}")
+
+    check_video(overview.get("video"), "overview")
+    for index, step in enumerate(steps, start=1):
+        if isinstance(step, dict):
+            check_video(step.get("video"), f"step {index}")
+
 # Keys whose string values are never reader-facing prose (so glossary terms
 # appearing only there would never be annotated by the viewer).
 _NON_PROSE_KEYS = frozenset({
@@ -467,6 +667,8 @@ def validate_walkthrough(
 
     _validate_source_refs(data, report, base_dir=base_dir, fs_refs=fs_refs)
     _validate_glossary(data, report, base_dir=base_dir)
+    _validate_density(data, report)
+    _validate_media_presence(data, report, base_dir=base_dir)
 
     return report
 

@@ -222,9 +222,13 @@ class TestGlossaryLint:
         ]
         return data
 
-    def test_no_glossary_emits_nothing(self):
+    def test_no_glossary_emits_only_presence_warning(self):
+        # Glossaries are a near-universal default now: absence draws exactly one
+        # presence warning and none of the content lints (which need entries).
         report = validate_walkthrough(_valid_walkthrough())
-        assert not any("glossary" in w for w in report.warnings)
+        glossary_warnings = [w for w in report.warnings if "glossary" in w]
+        assert len(glossary_warnings) == 1
+        assert "no glossary" in glossary_warnings[0]
 
     def test_well_formed_glossary_is_clean(self, tmp_path: Path):
         repo = tmp_path / "repo"
@@ -307,3 +311,87 @@ class TestGlossaryLint:
         report = validate_walkthrough(data)
         assert any("exceed 300 chars" in w for w in report.warnings)
         assert any("tooltip overload" in w for w in report.warnings)
+
+
+class TestDensityBudget:
+    def _bloated_step(self, claim_count: int = 26, claim_chars: int = 220) -> dict:
+        return {
+            "id": "step-1",
+            "title": "A Step With Far Too Much Visible Prose",
+            "takeaway": "The step exists and is far too tall for a reading screen.",
+            "intent": "Demonstrate the density lint.",
+            "claims": [
+                {
+                    "text": ("x" * claim_chars),
+                    "confidence": "grounded",
+                    "source_refs": [{"session_path": "chunk.jsonl", "line_start": 1, "line_end": 2}],
+                }
+                for _ in range(claim_count)
+            ],
+        }
+
+    def test_warns_on_overtall_step(self):
+        data = _valid_walkthrough()
+        data["steps"] = [self._bloated_step()]
+        report = validate_walkthrough(data)
+        assert any("screens tall" in w and "step 1" in w for w in report.warnings)
+
+    def test_compact_step_has_no_density_warning(self):
+        report = validate_walkthrough(_valid_walkthrough())
+        assert not any("screens tall" in w for w in report.warnings)
+
+    def test_warns_when_video_step_keeps_full_prose(self):
+        data = _valid_walkthrough()
+        step = self._bloated_step(claim_count=14)
+        step["video"] = {"src": "media/step.mp4"}
+        data["steps"] = [step]
+        report = validate_walkthrough(data)
+        assert any("displace text" in w for w in report.warnings)
+
+    def test_warns_on_overtall_overview_skim_band(self):
+        data = _valid_walkthrough()
+        data["overview"]["end_state"] = {
+            "goal": "The destination, as a noun phrase.",
+            "summary": ["y" * 300 for _ in range(8)],
+            "constraints": ["z" * 400 for _ in range(12)],
+        }
+        report = validate_walkthrough(data)
+        assert any("overview skim band" in w for w in report.warnings)
+
+
+class TestMediaPresence:
+    def test_warns_on_missing_diagram_and_clears_with_diagram_image(self):
+        data = _valid_walkthrough()
+        report = validate_walkthrough(data)
+        assert any("no architecture diagram" in w for w in report.warnings)
+
+        data["overview"]["diagram_image"] = "out/diagrams/arch.png"
+        report = validate_walkthrough(data)
+        assert not any("no architecture diagram" in w for w in report.warnings)
+
+    def test_step_diagram_also_clears_diagram_warning(self):
+        data = _valid_walkthrough()
+        data["steps"][0]["diagram"] = "out/diagrams/step.png"
+        report = validate_walkthrough(data)
+        assert not any("no architecture diagram" in w for w in report.warnings)
+
+    def test_warns_on_unresolvable_video_src(self, tmp_path: Path):
+        data = _valid_walkthrough()
+        data["overview"]["video"] = {"src": "media/missing.mp4"}
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+        assert any("video src does not resolve" in w for w in report.warnings)
+
+    def test_resolvable_video_src_is_clean(self, tmp_path: Path):
+        media = tmp_path / "media"
+        media.mkdir()
+        (media / "tour.mp4").write_bytes(b"\x00\x00")
+        data = _valid_walkthrough()
+        data["overview"]["video"] = {"src": "media/tour.mp4"}
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+        assert not any("video src" in w for w in report.warnings)
+
+    def test_http_video_src_skips_fs_check(self, tmp_path: Path):
+        data = _valid_walkthrough()
+        data["steps"][0]["video"] = "https://example.com/tour.mp4"
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+        assert not any("video src" in w for w in report.warnings)

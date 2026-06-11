@@ -984,6 +984,45 @@
         }
 
         /* =========================================================
+           TALL-CONTENT CLAMP  +  WALKTHROUGH VIDEO
+           ========================================================= */
+        /* Height budget: a step (or overview zone) should read in at most ~two
+           laptop screens. Zones marked [data-clamp] that overflow their share
+           of that budget collapse behind a fade + "Show more" control; JS
+           measures, CSS presents. The authoring-side fix is concision — the
+           clamp is the floor, not the goal. */
+        .clamped { overflow: hidden; position: relative; }
+        .clamped::after {
+            content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 88px;
+            background: linear-gradient(to bottom, transparent, var(--bg));
+            pointer-events: none;
+        }
+        .clamp-toggle {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            margin: 0.55rem 0 0; padding: 0.32rem 0.9rem;
+            border: 1px solid var(--hairline); border-radius: 999px;
+            background: var(--surface); color: var(--text-2);
+            font-family: var(--font-sans); font-size: 0.78rem; font-weight: 600;
+            cursor: pointer;
+            transition: color 0.15s var(--ease), border-color 0.15s var(--ease);
+        }
+        .clamp-toggle:hover { color: var(--accent); border-color: var(--accent); }
+        .clamp-toggle::after { content: "▾"; font-size: 0.7em; }
+        .clamp-toggle--open::after { content: "▴"; }
+        /* Diagrams stay within one screen in-flow; the lightbox carries the detail. */
+        .overview-diagram img, .overview-diagram svg { max-height: 80vh; }
+        .step-diagram img { max-height: 72vh; object-fit: contain; }
+
+        /* Hyperframe / walkthrough video — the moving skim band. */
+        .wt-video { margin: 1.7rem 0 0; }
+        .wt-video video {
+            display: block; width: 100%; max-height: 72vh;
+            border: 1px solid var(--hairline); border-radius: var(--radius);
+            background: #000;
+        }
+        .wt-video__cap { margin: 0.6rem 0 0; font-size: 0.82rem; color: var(--text-2); line-height: 1.5; }
+
+        /* =========================================================
            PRINT  ->  clean Cmd+P document
            ========================================================= */
         @media print {
@@ -1000,6 +1039,9 @@
             .reveal { opacity: 1 !important; transform: none !important; }
             .step, .diff, .cmd, .callout, .evidence { break-inside: avoid; page-break-inside: avoid; }
             .diff__body { max-height: none; }
+            .clamped { max-height: none !important; overflow: visible !important; }
+            .clamped::after, .clamp-toggle { display: none !important; }
+            .wt-video { display: none !important; }
             a { color: #000; text-decoration: none; }
         }
     </style>
@@ -1074,8 +1116,14 @@
                     {% for item in data.overview.summary %}<li>{{ item }}</li>{% endfor %}
                 </ul>
                 {% endif %}
+                {% if data.overview._video %}
+                <figure class="wt-video reveal">
+                    <video controls preload="metadata"{% if data.overview._video.poster %} poster="{{ data.overview._video.poster }}"{% endif %} src="{{ data.overview._video.src }}"></video>
+                    {% if data.overview._video.caption %}<figcaption class="wt-video__cap">{{ data.overview._video.caption }}</figcaption>{% endif %}
+                </figure>
+                {% endif %}
                 {% if data.overview._end_state_architecture %}
-                <div class="es-arch reveal" data-view-tag="end-state">
+                <div class="es-arch reveal" data-view-tag="end-state" data-clamp="1.0">
                     <div class="es-arch__label">How it works today</div>
                     <div class="es-arch__grid">
                         {% for c in data.overview._end_state_architecture %}
@@ -1090,7 +1138,7 @@
                 </div>
                 {% endif %}
                 {% if data.overview._end_state_constraints %}
-                <div class="es-constraints reveal" data-view-tag="end-state">
+                <div class="es-constraints reveal" data-view-tag="end-state" data-clamp="0.8">
                     <div class="es-constraints__label">Current constraints</div>
                     <ul>{% for c in data.overview._end_state_constraints %}<li>{{ c.text }}{% if c.step_id %} <a class="es-constraints__ref" href="#{{ c.step_id }}">{{ c.step_label }} &rarr;</a>{% endif %}</li>{% endfor %}</ul>
                 </div>
@@ -1156,7 +1204,7 @@
             {% if data.overview._decision_index or data.overview._gotcha_index %}
             <div class="reasoning-map reveal" aria-label="Reasoning map">
                 {% if data.overview._decision_index %}
-                <div class="reasoning-map__group">
+                <div class="reasoning-map__group" data-clamp="0.85">
                     <div class="reasoning-map__label">Decision map{% if data.overview._decision_total and data.overview._decision_total > (data.overview._decision_index | length) %}<span class="reasoning-map__count">{{ data.overview._decision_index | length }} of {{ data.overview._decision_total }}</span>{% endif %}</div>
                     <ul class="reasoning-map__list">
                         {% for item in data.overview._decision_index %}
@@ -1192,7 +1240,7 @@
                 </div>
                 {% endif %}
                 {% if data.overview._gotcha_index %}
-                <div class="reasoning-map__group">
+                <div class="reasoning-map__group" data-clamp="0.85">
                     <div class="reasoning-map__label">Gotcha map{% if data.overview._gotcha_total and data.overview._gotcha_total > (data.overview._gotcha_index | length) %}<span class="reasoning-map__count">{{ data.overview._gotcha_index | length }} of {{ data.overview._gotcha_total }}</span>{% endif %}</div>
                     <ul class="reasoning-map__list">
                         {% for item in data.overview._gotcha_index %}
@@ -1243,6 +1291,13 @@
                 {% if step.takeaway %}<p class="step-takeaway reveal">{{ step.takeaway }}</p>{% endif %}
                 {% if step.intent %}<p class="step-intent reveal">{{ step.intent }}</p>{% endif %}
 
+                {% if step._video %}
+                <figure class="wt-video reveal">
+                    <video controls preload="metadata"{% if step._video.poster %} poster="{{ step._video.poster }}"{% endif %} src="{{ step._video.src }}"></video>
+                    {% if step._video.caption %}<figcaption class="wt-video__cap">{{ step._video.caption }}</figcaption>{% endif %}
+                </figure>
+                {% endif %}
+
                 {% if step._diagram_image or step._diagram_image_light or step._diagram_image_dark %}
                 <figure class="step-diagram reveal">
                   {% if step._diagram_image %}<img class="step-diagram__img" src="{{ step._diagram_image }}" alt="{{ step._diagram_caption | default('Architecture diagram for this step') }}">
@@ -1266,7 +1321,7 @@
                 {% endif %}
 
                 {% if step.claims %}
-                <div class="claims reveal" data-view-collapsible>
+                <div class="claims reveal" data-view-collapsible data-clamp="0.9">
                     {% for claim in step.claims %}
                     {% set conf = claim.confidence | default('grounded') %}
                     <p class="claim claim--{{ conf }}"{% if claim.mode in ['journey','end-state'] %} data-view-tag="{{ claim.mode }}"{% endif %}>{% if conf in ['inferred','speculative'] %}<span class="pill pill--{{ conf }}">{{ conf }}</span>{% endif %}{{ claim.text }}</p>
@@ -1275,7 +1330,7 @@
                 {% endif %}
 
                 {% if step.decisions or step.errors_encountered %}
-                <div class="callouts reveal" data-view-collapsible>
+                <div class="callouts reveal" data-view-collapsible data-clamp="1.0">
                     {% for d in step.decisions | default([]) %}
                     <div class="callout callout--decision" id="{{ step.id }}-decision-{{ loop.index }}"{% if d.mode in ['journey','end-state'] %} data-view-tag="{{ d.mode }}"{% endif %}>
                         <div class="callout__label">&#9670; Decision</div>
@@ -1704,6 +1759,7 @@
             this.initCopy();
             this.initMediaGalleries();
             this.initGlossary();
+            this.initClamps();
             this.initLightbox();
             this.initKeyboard();
             this.initPrint();
@@ -1784,6 +1840,7 @@
             this.applyViewVisibility();
             this.recomputeStats();
             this.reading.computeReadTime();
+            this.applyClamps();
             if (document.documentElement.getAttribute('data-mode') !== 'present') {
                 const visible = this.reading.getVisibleSteps();
                 const curShown = visible.some(s => parseInt(s.dataset.step, 10) === this.reading.currentStep);
@@ -2034,13 +2091,108 @@
             if (changed && node.parentNode) node.parentNode.replaceChild(frag, node);
         }
 
-        /* --- Expand / collapse all evidence --- */
+        /* --- Tall-content clamp: keep any step within ~two laptop screens ---
+           Zones marked data-clamp collapse when their natural height exceeds
+           their share of the budget (the attribute value is a fraction of one
+           viewport height). The reader expands per zone; navigating to an
+           anchor inside a clamped zone auto-expands it. The real fix for an
+           over-tall step is authorial concision — this is the safety net. --- */
+        initClamps() {
+            this.clampZones = Array.from(document.querySelectorAll('.reading-view [data-clamp]'));
+            if (!this.clampZones.length) return;
+            this.applyClamps();
+            window.addEventListener('hashchange', () => this.expandClampForHash());
+            this.expandClampForHash();
+            let timer = null;
+            window.addEventListener('resize', () => {
+                clearTimeout(timer);
+                timer = setTimeout(() => this.applyClamps(), 160);
+            });
+        }
+        clampBudget(zone) {
+            const frac = parseFloat(zone.dataset.clamp) || 1;
+            return Math.max(360, Math.round(window.innerHeight * frac));
+        }
+        applyClamps() {
+            (this.clampZones || []).forEach(zone => {
+                if (zone.dataset.clampUser === 'open') { this.setClamped(zone, false); return; }
+                const budget = this.clampBudget(zone);
+                // scrollHeight reports full content height even while clamped;
+                // the slack keeps borderline zones from clamping a few lines.
+                this.setClamped(zone, zone.scrollHeight > budget + 140, budget);
+            });
+        }
+        setClamped(zone, on, budget) {
+            let btn = zone._clampBtn;
+            if (on && !btn) {
+                btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'clamp-toggle';
+                btn.addEventListener('click', () => {
+                    if (zone.classList.contains('clamped')) {
+                        zone.dataset.clampUser = 'open';
+                        this.setClamped(zone, false);
+                    } else {
+                        delete zone.dataset.clampUser;
+                        this.setClamped(zone, true);
+                        if (zone.getBoundingClientRect().top < 0) {
+                            zone.scrollIntoView({ block: 'start', behavior: 'auto' });
+                        }
+                    }
+                });
+                zone.insertAdjacentElement('afterend', btn);
+                zone._clampBtn = btn;
+            }
+            if (on) {
+                zone.classList.add('clamped');
+                zone.style.maxHeight = (budget || this.clampBudget(zone)) + 'px';
+                btn.textContent = 'Show more';
+                btn.classList.remove('clamp-toggle--open');
+                btn.style.display = '';
+            } else {
+                zone.classList.remove('clamped');
+                zone.style.maxHeight = '';
+                if (btn) {
+                    if (zone.dataset.clampUser === 'open') {
+                        btn.textContent = 'Show less';
+                        btn.classList.add('clamp-toggle--open');
+                        btn.style.display = '';
+                    } else {
+                        btn.style.display = 'none';
+                    }
+                }
+            }
+        }
+        expandClampForHash() {
+            const id = decodeURIComponent((location.hash || '').replace(/^#/, ''));
+            if (!id) return;
+            const target = document.getElementById(id);
+            if (!target) return;
+            const zone = target.closest('[data-clamp]');
+            if (zone && zone.classList.contains('clamped')) {
+                zone.dataset.clampUser = 'open';
+                this.setClamped(zone, false);
+                requestAnimationFrame(() => target.scrollIntoView({ block: 'center' }));
+            }
+        }
+
+        /* --- Expand / collapse all evidence + clamped zones --- */
         initExpandAll() {
             const btn = document.getElementById('expandAll');
             btn.addEventListener('click', () => {
                 const all = Array.from(document.querySelectorAll('details.evidence'));
-                const anyClosed = all.some(d => !d.open);
+                const anyClosed = all.some(d => !d.open) ||
+                    (this.clampZones || []).some(z => z.classList.contains('clamped'));
                 all.forEach(d => { d.open = anyClosed; });
+                (this.clampZones || []).forEach(zone => {
+                    if (anyClosed) {
+                        zone.dataset.clampUser = 'open';
+                        this.setClamped(zone, false);
+                    } else {
+                        delete zone.dataset.clampUser;
+                    }
+                });
+                if (!anyClosed) this.applyClamps();
                 btn.textContent = anyClosed ? 'Collapse all' : 'Expand all';
             });
         }

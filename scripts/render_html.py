@@ -579,6 +579,49 @@ def embed_step_diagram_images(step: dict, base_dir: Path, repo_root: str) -> Non
         step["_diagram_caption"] = caption
 
 
+def resolve_walkthrough_video(
+    node: dict, base_dir: Path, repo_root: str, html_dir: Path, label: str
+) -> None:
+    """Resolve a ``video`` spec (overview-level or step-level) into ``_video``.
+
+    ``video`` is ``{"src": <path-or-url>, "poster": <path?>, "caption": <str?>}``
+    (a bare string is treated as ``src``). Unlike diagrams, the video bytes are
+    NOT embedded as a data URI — a rendered mp4 is orders of magnitude larger
+    than an image, so the HTML references the file by a path relative to the
+    rendered output. The poster image, when present, is embedded like a diagram.
+    """
+    spec = node.get("video")
+    if not spec:
+        return
+    if isinstance(spec, str):
+        spec = {"src": spec}
+    if not isinstance(spec, dict):
+        return
+    src = str(spec.get("src") or "").strip()
+    if not src:
+        return
+    if src.startswith(("http://", "https://")):
+        src_href = src
+    else:
+        src_path = _resolve_existing_path(src, base_dir, repo_root)
+        if src_path is None:
+            print(f"Warning: {label} video not found: {src}", file=sys.stderr)
+            return
+        src_href = Path(os.path.relpath(src_path.resolve(), html_dir)).as_posix()
+    video: dict = {"src": src_href}
+    poster_ref = str(spec.get("poster") or "").strip()
+    if poster_ref:
+        poster_path = _resolve_existing_path(poster_ref, base_dir, repo_root)
+        if poster_path is not None:
+            video["poster"] = _image_to_data_uri(poster_path)
+        else:
+            print(f"Warning: {label} video poster not found: {poster_ref}", file=sys.stderr)
+    caption = spec.get("caption")
+    if caption:
+        video["caption"] = caption
+    node["_video"] = video
+
+
 def summarize_evidence(evidence: dict) -> str:
     """Build the one-line scent label for the collapsed evidence block.
 
@@ -1042,9 +1085,16 @@ def render(
     embed_overview_diagram_images(
         raw_data.setdefault("overview", {}), input_path.parent, repo_root
     )
+    html_dir = output_path.parent.resolve()
+    resolve_walkthrough_video(
+        raw_data.setdefault("overview", {}), input_path.parent, repo_root, html_dir, "overview"
+    )
     for _step in raw_data.get("steps", []) or []:
         if isinstance(_step, dict):
             embed_step_diagram_images(_step, input_path.parent, repo_root)
+            resolve_walkthrough_video(
+                _step, input_path.parent, repo_root, html_dir, f"step {_step.get('id', '?')}"
+            )
 
     data = prepare_data(raw_data)
     pygments_css = Markup(get_pygments_css())
@@ -1056,13 +1106,13 @@ def render(
     script_data = json.loads(json.dumps(data))
     _ov = script_data.get("overview")
     if isinstance(_ov, dict):
-        for _k in ("_diagram_image_light", "_diagram_image_dark", "_diagram_svg"):
+        for _k in ("_diagram_image_light", "_diagram_image_dark", "_diagram_svg", "_video"):
             _ov.pop(_k, None)
-    # Per-step diagram payloads are rendered once in the Jinja template; the client
-    # JS never reads them, so drop them from DATA to avoid doubling the image bytes.
+    # Per-step diagram/video payloads are rendered once in the Jinja template; the
+    # client JS never reads them, so drop them from DATA to avoid doubling the bytes.
     for _st in script_data.get("steps", []) or []:
         if isinstance(_st, dict):
-            for _k in ("_diagram_image", "_diagram_image_light", "_diagram_image_dark"):
+            for _k in ("_diagram_image", "_diagram_image_light", "_diagram_image_dark", "_video"):
                 _st.pop(_k, None)
     data_json = serialize_script_data(script_data)
 

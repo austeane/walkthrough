@@ -1149,3 +1149,118 @@ class TestEmbedOverviewDiagramImages:
         overview = {}
         render_html.embed_overview_diagram_images(overview, tmp_path, repo_root="")
         assert overview == {}
+
+
+class TestWalkthroughVideo:
+    def test_render_embeds_overview_and_step_video(self, tmp_path: Path):
+        media = tmp_path / "media"
+        media.mkdir()
+        (media / "tour.mp4").write_bytes(b"\x00fakevideo")
+        (media / "step.mp4").write_bytes(b"\x00fakevideo")
+        poster = media / "poster.png"
+        poster.write_bytes(
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0bIDATx\x9cc\xf8"
+            b"\x0f\x00\x01\x01\x01\x00\x1b\xb6\xee\x56\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        walkthrough = {
+            "meta": {"repo_root": str(tmp_path)},
+            "overview": {
+                "goal": "Show the video embed.",
+                "summary": ["One", "Two", "Three"],
+                "video": {
+                    "src": "media/tour.mp4",
+                    "poster": "media/poster.png",
+                    "caption": "Ninety-second tour",
+                },
+            },
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "A Step With Video",
+                    "takeaway": "The step shows a clip.",
+                    "intent": "Demonstrate per-step video.",
+                    "video": "media/step.mp4",
+                    "claims": [{"text": "Clip attached.", "confidence": "grounded"}],
+                }
+            ],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert '<video controls preload="metadata"' in html
+        assert 'src="media/tour.mp4"' in html
+        assert 'src="media/step.mp4"' in html
+        assert 'poster="data:image/png;base64,' in html
+        assert "Ninety-second tour" in html
+        # The resolved payloads stay out of the embedded DATA blob.
+        assert '"_video"' not in html
+
+    def test_render_skips_missing_video(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": str(tmp_path)},
+            "overview": {
+                "goal": "No video on disk.",
+                "summary": ["One", "Two", "Three"],
+                "video": {"src": "media/gone.mp4"},
+            },
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Plain Step",
+                    "takeaway": "Nothing to see.",
+                    "intent": "Check the warning path.",
+                    "claims": [{"text": "ok", "confidence": "grounded"}],
+                }
+            ],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert "<video" not in html
+
+
+class TestTallContentClamp:
+    def test_template_ships_clamp_zones_and_controller(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": str(tmp_path)},
+            "overview": {
+                "goal": "Clamp wiring.",
+                "summary": ["One", "Two", "Three"],
+                "end_state": {
+                    "goal": "Done thing.",
+                    "summary": ["Bullet."],
+                    "constraints": ["A live constraint."],
+                },
+            },
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Step",
+                    "takeaway": "It happened.",
+                    "intent": "Show clamp attributes.",
+                    "claims": [{"text": "ok", "confidence": "grounded"}],
+                    "decisions": [{"decision": "Choose X", "rationale": "Y"}],
+                }
+            ],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert 'class="claims reveal" data-view-collapsible data-clamp=' in html
+        assert 'class="callouts reveal" data-view-collapsible data-clamp=' in html
+        assert 'class="es-constraints reveal" data-view-tag="end-state" data-clamp=' in html
+        assert "initClamps()" in html
+        assert "clamp-toggle" in html
