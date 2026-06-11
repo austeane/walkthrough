@@ -486,6 +486,10 @@ A walkthrough can carry short rendered videos — a 60–120s overview tour, or 
    Steps take the same object as `step.video`. Paths resolve like diagrams (`meta.repo_root`, then the JSON's directory); the renderer links the mp4 by a path relative to the output HTML (video bytes are never inlined), so **ship the `media/` folder alongside `walkthrough.html`** when sharing.
 5. Optional: TTS narration + synced captions via the `hyperframes-media` skill (`tts` → `transcribe` → captions), when the walkthrough will be consumed away from a desk.
 
+> **QA the mp4 like a reader, not like a compiler.** `lint`/`validate`/`inspect` all passing does not prove the video reads well. Two checks caught real defects on the first production run:
+> - **Frame extraction**: `for t in 5 20 35 50 65 78; do ffmpeg -ss $t -i overview.mp4 -frames:v 1 /tmp/f-$t.png; done` — a near-empty frame shows up as a tiny PNG (a solid-background frame is ~9KB vs ~250KB for content). The first render had a 2s fully-blank scene boundary: every scene's entrance started >1.2s after its transition began, leaving the incoming scene visible but empty.
+> - **The animation map** (`hyperframes` skill → Animation Map) reports dead zones outright — the same render had six. Entrances should land 0.3–0.6s after a transition starts, and a scene's body should follow its title within ~1s.
+
 ### 8. Rendering
 
 ```bash
