@@ -1200,6 +1200,38 @@ class TestWalkthroughVideo:
         # The resolved payloads stay out of the embedded DATA blob.
         assert '"_video"' not in html
 
+    def test_embed_true_inlines_video_as_data_uri(self, tmp_path: Path):
+        media = tmp_path / "media"
+        media.mkdir()
+        (media / "tour.mp4").write_bytes(b"\x00fakevideo")
+        walkthrough = {
+            "meta": {"repo_root": str(tmp_path)},
+            "overview": {
+                "goal": "Single-file video embed.",
+                "summary": ["One", "Two", "Three"],
+                "video": {"src": "media/tour.mp4", "embed": True, "caption": "Tour"},
+            },
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Step",
+                    "takeaway": "T.",
+                    "intent": "I.",
+                    "claims": [{"text": "ok", "confidence": "grounded"}],
+                }
+            ],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert 'data-embedded-src="data:video/mp4;base64,' in html
+        assert 'src="media/tour.mp4"' not in html
+        assert "initEmbeddedVideos" in html
+
     def test_render_skips_missing_video(self, tmp_path: Path):
         walkthrough = {
             "meta": {"repo_root": str(tmp_path)},
@@ -1275,11 +1307,47 @@ class TestLikeC4Embed:
         assert "<c4-view data-likec4-view" in html
         assert 'style="height: 44vh"' in html
         assert "Click into any box." in html
-        # One bundle, one script tag — even with two embeds referencing it.
-        assert html.count('<script src="media/diagrams/likec4-views.js"></script>') == 1
+        # Inline by default: one parser-safe eval script — even with two embeds
+        # referencing the same bundle — and no sidecar reference.
+        assert html.count("(0,eval)(") == 1
+        assert "// likec4 bundle" in html
+        assert "<script src=" not in html
         # The resolved payloads stay out of the embedded DATA blob.
         assert '"_likec4"' not in html
         assert "_likec4_sources" not in html
+
+    def test_embed_false_keeps_sidecar_script(self, tmp_path: Path):
+        walkthrough = self._walkthrough_with_embeds(tmp_path)
+        walkthrough["overview"]["diagram_likec4"]["embed"] = False
+        walkthrough["steps"][0]["diagram_likec4"]["embed"] = False
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert html.count('<script src="media/diagrams/likec4-views.js"></script>') == 1
+        assert "(0,eval)(" not in html
+
+    def test_inline_bundle_is_parser_safe(self, tmp_path: Path):
+        walkthrough = self._walkthrough_with_embeds(tmp_path)
+        bundle = tmp_path / "media" / "diagrams" / "likec4-views.js"
+        bundle.write_text('var x = "<!--<script></scr" + "ipt>";', encoding="utf-8")
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        # Every "<" in the payload is <-escaped, so none of the bundle's
+        # parser-hostile sequences survive into the script element's text.
+        start = html.index("(0,eval)(")
+        end = html.index("</script>", start)
+        chunk = html[start:end]
+        assert "<" not in chunk
+        assert "\\u003c!--" in chunk
 
     def test_render_skips_missing_bundle(self, tmp_path: Path):
         walkthrough = self._walkthrough_with_embeds(tmp_path)

@@ -1143,7 +1143,7 @@
                 {% endif %}
                 {% if data.overview._video %}
                 <figure class="wt-video reveal">
-                    <video controls preload="metadata"{% if data.overview._video.poster %} poster="{{ data.overview._video.poster }}"{% endif %} src="{{ data.overview._video.src }}"></video>
+                    <video controls preload="metadata"{% if data.overview._video.poster %} poster="{{ data.overview._video.poster }}"{% endif %}{% if data.overview._video.embedded %} data-embedded-src="{{ data.overview._video.src }}"{% else %} src="{{ data.overview._video.src }}"{% endif %}></video>
                     {% if data.overview._video.caption %}<figcaption class="wt-video__cap">{{ data.overview._video.caption }}</figcaption>{% endif %}
                 </figure>
                 {% endif %}
@@ -1329,7 +1329,7 @@
 
                 {% if step._video %}
                 <figure class="wt-video reveal">
-                    <video controls preload="metadata"{% if step._video.poster %} poster="{{ step._video.poster }}"{% endif %} src="{{ step._video.src }}"></video>
+                    <video controls preload="metadata"{% if step._video.poster %} poster="{{ step._video.poster }}"{% endif %}{% if step._video.embedded %} data-embedded-src="{{ step._video.src }}"{% else %} src="{{ step._video.src }}"{% endif %}></video>
                     {% if step._video.caption %}<figcaption class="wt-video__cap">{{ step._video.caption }}</figcaption>{% endif %}
                 </figure>
                 {% endif %}
@@ -1799,6 +1799,7 @@
             this.deck = new DeckController(this);
 
             this.initTheme();
+            this.initEmbeddedVideos();
             this.initMode();
             this.initView();
             this.initSidebar();
@@ -1827,6 +1828,18 @@
                 localStorage.setItem('walkthrough-theme', next);
                 this.updateThemeIcon();
                 this.syncLikeC4Theme();
+            });
+        }
+        /* Embedded (single-file) videos carry their bytes as a base64 data URI
+           in data-embedded-src — Chromium's media pipeline rejects large data:
+           URIs as a direct video src, so revive them as blob URLs instead. */
+        initEmbeddedVideos() {
+            document.querySelectorAll('video[data-embedded-src]').forEach(async (el) => {
+                try {
+                    const blob = await (await fetch(el.dataset.embeddedSrc)).blob();
+                    el.src = URL.createObjectURL(blob);
+                    el.removeAttribute('data-embedded-src');
+                } catch (e) { console.error('embedded video revive failed', e); }
             });
         }
         /* Interactive LikeC4 embeds re-render reactively when their
@@ -2571,7 +2584,7 @@
 
     document.addEventListener('DOMContentLoaded', () => { window.__walkthrough = new App(); });
     </script>
-    {% for src in data._likec4_sources %}<script src="{{ src }}"></script>
+    {% for s in likec4_scripts %}{% if s.inline %}<script>{{ s.code }}</script>{% else %}<script src="{{ s.src }}"></script>{% endif %}
     {% endfor %}
 </body>
 </html>

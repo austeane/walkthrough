@@ -426,6 +426,22 @@ class TestMediaPresence:
         report = validate_walkthrough(data, base_dir=str(tmp_path))
         assert not any("no static export alongside" in w for w in report.warnings)
 
+    def test_oversized_embedded_video_warns(self, tmp_path: Path, monkeypatch):
+        import validate_walkthrough_quality as vq
+
+        media = tmp_path / "media"
+        media.mkdir()
+        (media / "tour.mp4").write_bytes(b"\x00" * 64)
+        monkeypatch.setattr(vq, "_EMBED_VIDEO_WARN_BYTES", 32)
+        data = _valid_walkthrough()
+        data["overview"]["video"] = {"src": "media/tour.mp4", "embed": True}
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+        assert any("embed=true" in w for w in report.warnings)
+
+        data["overview"]["video"]["embed"] = False
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+        assert not any("embed=true" in w for w in report.warnings)
+
     def test_likec4_remote_views_js_warns(self, tmp_path: Path):
         data = _valid_walkthrough()
         data["overview"]["diagram_likec4"] = {

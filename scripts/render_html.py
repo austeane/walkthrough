@@ -9,6 +9,7 @@ interactivity, and writes a self-contained HTML file.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import mimetypes
 import os
@@ -584,11 +585,14 @@ def resolve_walkthrough_video(
 ) -> None:
     """Resolve a ``video`` spec (overview-level or step-level) into ``_video``.
 
-    ``video`` is ``{"src": <path-or-url>, "poster": <path?>, "caption": <str?>}``
-    (a bare string is treated as ``src``). Unlike diagrams, the video bytes are
-    NOT embedded as a data URI — a rendered mp4 is orders of magnitude larger
+    ``video`` is ``{"src": <path-or-url>, "poster": <path?>, "caption": <str?>,
+    "embed": <bool?>}`` (a bare string is treated as ``src``). By default the
+    video bytes are NOT embedded — a rendered mp4 is orders of magnitude larger
     than an image, so the HTML references the file by a path relative to the
-    rendered output. The poster image, when present, is embedded like a diagram.
+    rendered output. ``"embed": true`` inlines the bytes as a base64 data URI
+    instead, keeping the artifact a single self-contained file (sensible for
+    short tours; the gate warns above ~15 MB). The poster image, when present,
+    is always embedded like a diagram.
     """
     spec = node.get("video")
     if not spec:
@@ -600,6 +604,7 @@ def resolve_walkthrough_video(
     src = str(spec.get("src") or "").strip()
     if not src:
         return
+    embedded = False
     if src.startswith(("http://", "https://")):
         src_href = src
     else:
@@ -607,8 +612,23 @@ def resolve_walkthrough_video(
         if src_path is None:
             print(f"Warning: {label} video not found: {src}", file=sys.stderr)
             return
-        src_href = Path(os.path.relpath(src_path.resolve(), html_dir)).as_posix()
+        if spec.get("embed"):
+            # Chromium's media pipeline rejects large data: URIs as a direct
+            # <video src>, so the template parks the payload in a
+            # data-embedded-src attribute and the viewer JS revives it as a
+            # blob URL at load.
+            mime = {
+                ".webm": "video/webm",
+                ".mov": "video/quicktime",
+            }.get(src_path.suffix.lower(), "video/mp4")
+            encoded = base64.b64encode(src_path.read_bytes()).decode("ascii")
+            src_href = f"data:{mime};base64,{encoded}"
+            embedded = True
+        else:
+            src_href = Path(os.path.relpath(src_path.resolve(), html_dir)).as_posix()
     video: dict = {"src": src_href}
+    if embedded:
+        video["embedded"] = True
     poster_ref = str(spec.get("poster") or "").strip()
     if poster_ref:
         poster_path = _resolve_existing_path(poster_ref, base_dir, repo_root)
@@ -630,11 +650,13 @@ def resolve_walkthrough_likec4(
 ) -> None:
     """Resolve a ``diagram_likec4`` spec (overview-level or step-level) into ``_likec4``.
 
-    ``diagram_likec4`` is ``{"views_js": <path-or-url>, "view": <view-id>,
-    "tag": <custom-element>?, "caption": <str>?}``. ``views_js`` is the bundle
-    produced by ``likec4 codegen webcomponent`` and, like a video, is referenced
-    by a path relative to the rendered HTML — never inlined (it is ~2.4 MB).
-    ``tag`` defaults to ``c4-view`` (generate the bundle with ``-w c4``).
+    ``diagram_likec4`` is ``{"views_js": <path>, "view": <view-id>,
+    "tag": <custom-element>?, "height": <css-length>?, "caption": <str>?,
+    "embed": <bool>?}``. ``views_js`` is the bundle produced by ``likec4
+    codegen webcomponent``; by default it is inlined into the HTML so the
+    artifact stays one self-contained file, while ``"embed": false`` keeps it
+    as a sidecar referenced relative to the rendered HTML. ``tag`` defaults to
+    ``c4-view`` (generate the bundle with ``-w c4``).
     """
     spec = node.get("diagram_likec4")
     if not spec or not isinstance(spec, dict):
@@ -668,7 +690,16 @@ def resolve_walkthrough_likec4(
             file=sys.stderr,
         )
         tag = "c4-view"
-    likec4: dict = {"src": src_href, "view": view_id, "tag": tag}
+    likec4: dict = {
+        "src": src_href,
+        "view": view_id,
+        "tag": tag,
+        # Inline the bundle into the HTML by default so the artifact stays a
+        # single self-contained file; {"embed": false} opts into a sidecar
+        # <script src> (e.g. several walkthroughs sharing one bundle).
+        "embed": bool(spec.get("embed", True)),
+        "_src_abs": str(src_path.resolve()),
+    }
     height = str(spec.get("height") or "").strip()
     if height:
         if re.match(r"^\d{1,4}(?:px|vh|rem|em)$", height):
@@ -1164,15 +1195,32 @@ def render(
                 _step, input_path.parent, repo_root, html_dir, f"step {_step.get('id', '?')}"
             )
 
-    # Every distinct webcomponent bundle referenced by an interactive LikeC4 embed
-    # gets exactly one <script src> tag in the rendered page.
-    _likec4_sources: list[str] = []
+    # Every distinct webcomponent bundle referenced by an interactive LikeC4
+    # embed becomes exactly one script in the rendered page: inlined by default
+    # (the artifact stays one self-contained file), or a sidecar <script src>
+    # when the spec says {"embed": false}. The inline payload is embedded as a
+    # JSON string with every "<" escaped to \\u003c and revived via eval — the
+    # bundle contains sequences ("<!--", "<script") that would otherwise put
+    # the HTML parser into a state where our closing script tag breaks.
+    likec4_scripts: list[dict] = []
+    _likec4_seen: list[str] = []
     for _node in [raw_data.get("overview") or {}, *(raw_data.get("steps") or [])]:
-        if isinstance(_node, dict):
-            _lc4 = _node.get("_likec4")
-            if isinstance(_lc4, dict) and _lc4.get("src") not in _likec4_sources:
-                _likec4_sources.append(_lc4["src"])
-    raw_data["_likec4_sources"] = _likec4_sources
+        if not isinstance(_node, dict):
+            continue
+        _lc4 = _node.get("_likec4")
+        if not isinstance(_lc4, dict):
+            continue
+        _src_abs = _lc4.pop("_src_abs", None)
+        _embed = _lc4.pop("embed", True)
+        if _lc4.get("src") in _likec4_seen:
+            continue
+        _likec4_seen.append(_lc4["src"])
+        if _embed and _src_abs:
+            _code = Path(_src_abs).read_text(encoding="utf-8")
+            _payload = json.dumps(_code).replace("<", "\\u003c")
+            likec4_scripts.append({"inline": True, "code": Markup(f"(0,eval)({_payload})")})
+        else:
+            likec4_scripts.append({"inline": False, "src": _lc4["src"]})
 
     data = prepare_data(raw_data)
     pygments_css = Markup(get_pygments_css())
@@ -1182,7 +1230,6 @@ def render(
     # them (the diagram is rendered once in the Jinja template), so keeping them in
     # DATA would double the embedded image/SVG bytes.
     script_data = json.loads(json.dumps(data))
-    script_data.pop("_likec4_sources", None)
     _ov = script_data.get("overview")
     if isinstance(_ov, dict):
         for _k in ("_diagram_image_light", "_diagram_image_dark", "_diagram_svg", "_video", "_likec4"):
@@ -1208,6 +1255,7 @@ def render(
         data=data,
         data_json=data_json,
         pygments_css=pygments_css,
+        likec4_scripts=likec4_scripts,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

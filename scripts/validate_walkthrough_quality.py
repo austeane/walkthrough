@@ -159,6 +159,7 @@ GLOSSARY_MAX_DEFINITION_CHARS = 300
 # band (large title fonts cost more vertical space per character than body
 # prose) plus fixed per-block costs, calibrated against rendered artifacts.
 SCREEN_PX = 900                    # one laptop screen of content
+_EMBED_VIDEO_WARN_BYTES = 15 * 1024 * 1024  # embed=true above this → suggest a sidecar
 STEP_SCREEN_BUDGET = 2.0           # two screens per step
 _PX_TITLE = 1.0                    # step title (large font, short measure)
 _PX_LEAD = 0.45                    # takeaway / intent (lead fonts)
@@ -404,8 +405,16 @@ def _validate_media_presence(data: dict, report: QualityReport, *, base_dir: str
             report.add_warning(f"{label} video has no src")
             return
         if not src.startswith(("http://", "https://")) and base_dir is not None:
-            if _resolve_media_path(src, base_dir, repo_root) is None:
+            resolved_src = _resolve_media_path(src, base_dir, repo_root)
+            if resolved_src is None:
                 report.add_warning(f"{label} video src does not resolve on disk: {src}")
+            elif spec.get("embed"):
+                size = os.path.getsize(resolved_src)
+                if size > _EMBED_VIDEO_WARN_BYTES:
+                    report.add_warning(
+                        f"{label} video is {size / (1024 * 1024):.0f} MB and embed=true — "
+                        "base64 inlining adds ~33%; ship a sidecar media/ file instead"
+                    )
         poster = _as_text(spec.get("poster"))
         if poster and base_dir is not None:
             if _resolve_media_path(poster, base_dir, repo_root) is None:

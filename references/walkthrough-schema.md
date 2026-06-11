@@ -317,7 +317,8 @@ one shape. They are typically produced with HyperFrames (see SKILL.md step
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `src` | string | Path to the mp4 (resolved against `meta.repo_root`, then the walkthrough JSON's directory) or an `https://` URL. The renderer references the file by a path **relative to the output HTML** — video bytes are never inlined, so ship the media folder alongside the HTML. |
+| `src` | string | Path to the mp4 (resolved against `meta.repo_root`, then the walkthrough JSON's directory) or an `https://` URL. By default the renderer references the file by a path **relative to the output HTML** — ship the media folder alongside the HTML. |
+| `embed` | boolean | Optional, default `false`. `true` inlines the video bytes into the HTML (base64, ~33% larger) so the artifact stays one self-contained file — sensible for short tours; the gate warns above ~15 MB. The viewer revives the payload as a blob URL at load (browsers refuse large `data:` URIs as a direct video src). |
 | `poster` | string | Optional poster image path; embedded as a data URI like a diagram. |
 | `caption` | string | Optional one-line description rendered under the player. |
 
@@ -343,7 +344,8 @@ into nested views — instead of a flat image:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `views_js` | string | Path to the webcomponent bundle, resolved against `meta.repo_root`, then the walkthrough JSON's directory. **Local files only** — the bundle becomes an executable `<script src>`, so the renderer refuses remote URLs. Generate it with `likec4 codegen webcomponent <model-dir> -w c4 -o media/diagrams/likec4-views.js`. Like video, the bundle (~2.4 MB) is **never inlined** — the HTML references it relative to the output file, so ship the media folder alongside the HTML. One bundle serves every view; the renderer emits a single `<script>` tag per distinct bundle. |
+| `views_js` | string | Path to the webcomponent bundle, resolved against `meta.repo_root`, then the walkthrough JSON's directory. **Local files only** — the bundle becomes an executable script, so the renderer refuses remote URLs. Generate it with `likec4 codegen webcomponent <model-dir> -w c4 -o media/diagrams/likec4-views.js`. One bundle serves every view; the renderer emits a single script per distinct bundle. |
+| `embed` | boolean | Optional, default `true`: the bundle (~2.4 MB) is inlined into the HTML (as a parser-safe escaped string) so the artifact stays one self-contained file. Set `false` to reference it as a sidecar `<script src>` relative to the output HTML instead — then ship the media folder alongside. |
 | `view` | string | The LikeC4 view id to show (e.g. `index`, `cicd`). |
 | `tag` | string | Custom-element name registered by the bundle. Defaults to `c4-view`, which matches `-w c4` above; only set this if you generated with a different prefix. |
 | `height` | string | Optional frame height as a simple CSS length (`44vh`, `420px`). Default is `70vh`; use a shorter frame for wide, shallow views like pipelines. |
