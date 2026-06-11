@@ -1009,6 +1009,10 @@
         .clamp-toggle:hover { color: var(--accent); border-color: var(--accent); }
         .clamp-toggle::after { content: "▾"; font-size: 0.7em; }
         .clamp-toggle--open::after { content: "▴"; }
+        /* The toggle lives INSIDE its zone (so grid layouts can't strand it in
+           another column): overlaid on the fade while clamped, in normal flow
+           at the end once expanded. */
+        .clamped > .clamp-toggle { position: absolute; left: 0; bottom: 10px; z-index: 1; }
         /* Diagrams stay within one screen in-flow; the lightbox carries the detail. */
         .overview-diagram img, .overview-diagram svg { max-height: 70vh; }
         .step-diagram img { max-height: 72vh; object-fit: contain; }
@@ -1861,7 +1865,8 @@
             const view = document.documentElement.getAttribute('data-view');
             document.querySelectorAll('[data-view-collapsible]').forEach(box => {
                 const tagged = Array.from(box.querySelectorAll('[data-view-tag]'));
-                const hasUntagged = Array.from(box.children).some(c => !c.hasAttribute('data-view-tag'));
+                const hasUntagged = Array.from(box.children)
+                    .some(c => !c.hasAttribute('data-view-tag') && !c.classList.contains('clamp-toggle'));
                 const anyTaggedIn = tagged.some(el => this.inView(el.getAttribute('data-view-tag'), view));
                 box.style.display = (tagged.length && !anyTaggedIn && !hasUntagged) ? 'none' : '';
             });
@@ -2118,20 +2123,46 @@
         }
         applyClamps() {
             (this.clampZones || []).forEach(zone => {
-                // A zone hidden by the view filter (or any display:none ancestor)
-                // must not leave its sibling toggle orphaned on screen, and
-                // measuring it would read 0 anyway.
-                if (!zone.getClientRects().length) {
-                    if (zone._clampBtn) zone._clampBtn.style.display = 'none';
-                    return;
-                }
+                // A zone hidden by the view filter (or any display:none
+                // ancestor) measures 0 — skip it (its toggle hides with it).
+                if (!zone.getClientRects().length) return;
                 if (zone.dataset.clampUser === 'open') { this.setClamped(zone, false); return; }
                 const budget = this.clampBudget(zone);
                 // scrollHeight reports full content height even while clamped;
                 // the slack keeps borderline zones from clamping a few lines.
                 this.setClamped(zone, zone.scrollHeight > budget + 140, budget);
             });
+            this.balanceClampPairs();
             this.syncExpandAllLabel();
+        }
+        /* Side-by-side zones (arch cards | constraints; decision | gotcha map)
+           should end flush: a clamped column has hidden content, so it extends
+           down to its taller neighbor's bottom instead of leaving a dead gap. */
+        balanceClampPairs() {
+            const arch = document.querySelector('.es-arch[data-clamp]');
+            const cons = document.querySelector('.es-constraints[data-clamp]');
+            if (arch && cons) this.balancePair(arch, cons);
+            const groups = Array.from(document.querySelectorAll('.reasoning-map__group[data-clamp]'));
+            if (groups.length === 2) this.balancePair(groups[0], groups[1]);
+        }
+        balancePair(a, b) {
+            if (!a.getClientRects().length || !b.getClientRects().length) return;
+            const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+            // Only when actually side by side (the grid collapses on small screens).
+            if (ra.right > rb.left + 1 && rb.right > ra.left + 1) return;
+            const bottomOf = (zone) => zone.getBoundingClientRect().bottom;
+            [[a, b], [b, a]].forEach(([zone, other]) => {
+                if (!zone.classList.contains('clamped')) return;
+                const slack = bottomOf(other) - bottomOf(zone);
+                if (slack <= 24) return;
+                const current = parseFloat(zone.style.maxHeight) || zone.offsetHeight;
+                const target = Math.min(zone.scrollHeight, current + slack);
+                if (target >= zone.scrollHeight - 24) {
+                    this.setClamped(zone, false);
+                } else {
+                    zone.style.maxHeight = target + 'px';
+                }
+            });
         }
         setClamped(zone, on, budget) {
             let btn = zone._clampBtn;
@@ -2139,10 +2170,6 @@
                 btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'clamp-toggle';
-                // The toggle lives outside the zone; inherit its view tag so the
-                // End State/Journey filter hides them together.
-                const viewTag = zone.getAttribute('data-view-tag');
-                if (viewTag) btn.setAttribute('data-view-tag', viewTag);
                 btn.addEventListener('click', () => {
                     if (zone.classList.contains('clamped')) {
                         zone.dataset.clampUser = 'open';
@@ -2156,7 +2183,9 @@
                     }
                     this.syncExpandAllLabel();
                 });
-                zone.insertAdjacentElement('afterend', btn);
+                // Inside the zone: inherits the view filter, and grid layouts
+                // can't auto-place it into a neighboring column.
+                zone.appendChild(btn);
                 zone._clampBtn = btn;
             }
             if (on) {
