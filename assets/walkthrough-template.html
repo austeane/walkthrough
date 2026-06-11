@@ -1010,7 +1010,7 @@
         .clamp-toggle::after { content: "▾"; font-size: 0.7em; }
         .clamp-toggle--open::after { content: "▴"; }
         /* Diagrams stay within one screen in-flow; the lightbox carries the detail. */
-        .overview-diagram img, .overview-diagram svg { max-height: 80vh; }
+        .overview-diagram img, .overview-diagram svg { max-height: 70vh; }
         .step-diagram img { max-height: 72vh; object-fit: contain; }
 
         /* Hyperframe / walkthrough video — the moving skim band. */
@@ -1123,7 +1123,7 @@
                 </figure>
                 {% endif %}
                 {% if data.overview._end_state_architecture %}
-                <div class="es-arch reveal" data-view-tag="end-state" data-clamp="1.0">
+                <div class="es-arch reveal" data-view-tag="end-state" data-clamp="0.8">
                     <div class="es-arch__label">How it works today</div>
                     <div class="es-arch__grid">
                         {% for c in data.overview._end_state_architecture %}
@@ -1138,7 +1138,7 @@
                 </div>
                 {% endif %}
                 {% if data.overview._end_state_constraints %}
-                <div class="es-constraints reveal" data-view-tag="end-state" data-clamp="0.8">
+                <div class="es-constraints reveal" data-view-tag="end-state" data-clamp="0.6">
                     <div class="es-constraints__label">Current constraints</div>
                     <ul>{% for c in data.overview._end_state_constraints %}<li>{{ c.text }}{% if c.step_id %} <a class="es-constraints__ref" href="#{{ c.step_id }}">{{ c.step_label }} &rarr;</a>{% endif %}</li>{% endfor %}</ul>
                 </div>
@@ -1204,7 +1204,7 @@
             {% if data.overview._decision_index or data.overview._gotcha_index %}
             <div class="reasoning-map reveal" aria-label="Reasoning map">
                 {% if data.overview._decision_index %}
-                <div class="reasoning-map__group" data-clamp="0.85">
+                <div class="reasoning-map__group" data-clamp="0.6">
                     <div class="reasoning-map__label">Decision map{% if data.overview._decision_total and data.overview._decision_total > (data.overview._decision_index | length) %}<span class="reasoning-map__count">{{ data.overview._decision_index | length }} of {{ data.overview._decision_total }}</span>{% endif %}</div>
                     <ul class="reasoning-map__list">
                         {% for item in data.overview._decision_index %}
@@ -1240,7 +1240,7 @@
                 </div>
                 {% endif %}
                 {% if data.overview._gotcha_index %}
-                <div class="reasoning-map__group" data-clamp="0.85">
+                <div class="reasoning-map__group" data-clamp="0.6">
                     <div class="reasoning-map__label">Gotcha map{% if data.overview._gotcha_total and data.overview._gotcha_total > (data.overview._gotcha_index | length) %}<span class="reasoning-map__count">{{ data.overview._gotcha_index | length }} of {{ data.overview._gotcha_total }}</span>{% endif %}</div>
                     <ul class="reasoning-map__list">
                         {% for item in data.overview._gotcha_index %}
