@@ -622,6 +622,68 @@ def resolve_walkthrough_video(
     node["_video"] = video
 
 
+_LIKEC4_TAG_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$")
+
+
+def resolve_walkthrough_likec4(
+    node: dict, base_dir: Path, repo_root: str, html_dir: Path, label: str
+) -> None:
+    """Resolve a ``diagram_likec4`` spec (overview-level or step-level) into ``_likec4``.
+
+    ``diagram_likec4`` is ``{"views_js": <path-or-url>, "view": <view-id>,
+    "tag": <custom-element>?, "caption": <str>?}``. ``views_js`` is the bundle
+    produced by ``likec4 codegen webcomponent`` and, like a video, is referenced
+    by a path relative to the rendered HTML — never inlined (it is ~2.4 MB).
+    ``tag`` defaults to ``c4-view`` (generate the bundle with ``-w c4``).
+    """
+    spec = node.get("diagram_likec4")
+    if not spec or not isinstance(spec, dict):
+        return
+    views_js = str(spec.get("views_js") or "").strip()
+    view_id = str(spec.get("view") or "").strip()
+    if not views_js or not view_id:
+        print(
+            f"Warning: {label} diagram_likec4 needs both views_js and view — skipped",
+            file=sys.stderr,
+        )
+        return
+    if views_js.startswith(("http://", "https://")):
+        # Unlike a video src, views_js becomes an executable <script src> —
+        # a remote URL would let a JSON edit inject arbitrary JS into the
+        # artifact. Local bundles only.
+        print(
+            f"Warning: {label} diagram_likec4 views_js must be a local file, not a URL — skipped",
+            file=sys.stderr,
+        )
+        return
+    src_path = _resolve_existing_path(views_js, base_dir, repo_root)
+    if src_path is None:
+        print(f"Warning: {label} diagram_likec4 views_js not found: {views_js}", file=sys.stderr)
+        return
+    src_href = Path(os.path.relpath(src_path.resolve(), html_dir)).as_posix()
+    tag = str(spec.get("tag") or "c4-view").strip()
+    if not _LIKEC4_TAG_RE.match(tag):
+        print(
+            f"Warning: {label} diagram_likec4 tag {tag!r} is not a valid custom-element name — using c4-view",
+            file=sys.stderr,
+        )
+        tag = "c4-view"
+    likec4: dict = {"src": src_href, "view": view_id, "tag": tag}
+    height = str(spec.get("height") or "").strip()
+    if height:
+        if re.match(r"^\d{1,4}(?:px|vh|rem|em)$", height):
+            likec4["height"] = height
+        else:
+            print(
+                f"Warning: {label} diagram_likec4 height {height!r} is not a simple CSS length — ignored",
+                file=sys.stderr,
+            )
+    caption = spec.get("caption")
+    if caption:
+        likec4["caption"] = caption
+    node["_likec4"] = likec4
+
+
 def summarize_evidence(evidence: dict) -> str:
     """Build the one-line scent label for the collapsed evidence block.
 
@@ -1089,12 +1151,28 @@ def render(
     resolve_walkthrough_video(
         raw_data.setdefault("overview", {}), input_path.parent, repo_root, html_dir, "overview"
     )
+    resolve_walkthrough_likec4(
+        raw_data.setdefault("overview", {}), input_path.parent, repo_root, html_dir, "overview"
+    )
     for _step in raw_data.get("steps", []) or []:
         if isinstance(_step, dict):
             embed_step_diagram_images(_step, input_path.parent, repo_root)
             resolve_walkthrough_video(
                 _step, input_path.parent, repo_root, html_dir, f"step {_step.get('id', '?')}"
             )
+            resolve_walkthrough_likec4(
+                _step, input_path.parent, repo_root, html_dir, f"step {_step.get('id', '?')}"
+            )
+
+    # Every distinct webcomponent bundle referenced by an interactive LikeC4 embed
+    # gets exactly one <script src> tag in the rendered page.
+    _likec4_sources: list[str] = []
+    for _node in [raw_data.get("overview") or {}, *(raw_data.get("steps") or [])]:
+        if isinstance(_node, dict):
+            _lc4 = _node.get("_likec4")
+            if isinstance(_lc4, dict) and _lc4.get("src") not in _likec4_sources:
+                _likec4_sources.append(_lc4["src"])
+    raw_data["_likec4_sources"] = _likec4_sources
 
     data = prepare_data(raw_data)
     pygments_css = Markup(get_pygments_css())
@@ -1104,15 +1182,16 @@ def render(
     # them (the diagram is rendered once in the Jinja template), so keeping them in
     # DATA would double the embedded image/SVG bytes.
     script_data = json.loads(json.dumps(data))
+    script_data.pop("_likec4_sources", None)
     _ov = script_data.get("overview")
     if isinstance(_ov, dict):
-        for _k in ("_diagram_image_light", "_diagram_image_dark", "_diagram_svg", "_video"):
+        for _k in ("_diagram_image_light", "_diagram_image_dark", "_diagram_svg", "_video", "_likec4"):
             _ov.pop(_k, None)
     # Per-step diagram/video payloads are rendered once in the Jinja template; the
     # client JS never reads them, so drop them from DATA to avoid doubling the bytes.
     for _st in script_data.get("steps", []) or []:
         if isinstance(_st, dict):
-            for _k in ("_diagram_image", "_diagram_image_light", "_diagram_image_dark", "_video"):
+            for _k in ("_diagram_image", "_diagram_image_light", "_diagram_image_dark", "_video", "_likec4"):
                 _st.pop(_k, None)
     data_json = serialize_script_data(script_data)
 

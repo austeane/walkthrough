@@ -120,6 +120,22 @@ def _resolve_ref_path(path: str, base_dir: str, repo_root: str) -> str | None:
     return None
 
 
+def _resolve_media_path(path: str, base_dir: str, repo_root: str) -> str | None:
+    """Mirror render_html's media resolution exactly: repo_root, then the
+    walkthrough JSON's directory — never the cwd. Source refs keep the looser
+    `_resolve_ref_path`; media must not pass the gate and then skip at render."""
+    if not path:
+        return None
+    if os.path.isabs(path):
+        return path if os.path.isfile(path) else None
+    for root in (repo_root, base_dir):
+        if root:
+            candidate = os.path.join(root, path)
+            if os.path.isfile(candidate):
+                return candidate
+    return None
+
+
 def _examples(items: list[str], limit: int = 3) -> str:
     unique: list[str] = []
     for item in items:
@@ -310,14 +326,70 @@ def _validate_media_presence(data: dict, report: QualityReport, *, base_dir: str
 
     has_diagram = bool(
         overview.get("diagram_image")
+        or overview.get("diagram_likec4")
         or _as_text(overview.get("diagram_mermaid"))
-        or any(isinstance(s, dict) and s.get("diagram") for s in steps)
+        or any(isinstance(s, dict) and (s.get("diagram") or s.get("diagram_likec4")) for s in steps)
     )
     if not has_diagram:
         report.add_warning(
             "no architecture diagram — almost all walkthroughs should carry one "
             "(prefer a LikeC4 export in overview.diagram_image)"
         )
+
+    def static_diagram_present(spec: object) -> bool:
+        """True when the static diagram spec names at least one image that
+        actually resolves (when we can check the filesystem)."""
+        if isinstance(spec, str):
+            refs = [spec]
+        elif isinstance(spec, dict):
+            refs = [_as_text(spec.get("light")), _as_text(spec.get("dark"))]
+        else:
+            return False
+        refs = [r for r in refs if r]
+        if not refs:
+            return False
+        if base_dir is None:
+            return True
+        return any(_resolve_media_path(r, base_dir, repo_root) is not None for r in refs)
+
+    def check_likec4(node: dict, label: str, *, has_static: bool) -> None:
+        spec = node.get("diagram_likec4")
+        if not spec:
+            return
+        if not isinstance(spec, dict):
+            report.add_warning(f"{label} diagram_likec4 must be an object with views_js and view")
+            return
+        views_js = _as_text(spec.get("views_js"))
+        view = _as_text(spec.get("view"))
+        if not views_js or not view:
+            report.add_warning(f"{label} diagram_likec4 needs both views_js and view")
+            return
+        if views_js.startswith(("http://", "https://")):
+            # views_js becomes an executable <script src>; the renderer refuses
+            # remote URLs, so the gate flags them too.
+            report.add_warning(
+                f"{label} diagram_likec4 views_js must be a local file, not a URL: {views_js}"
+            )
+            return
+        if base_dir is not None and _resolve_media_path(views_js, base_dir, repo_root) is None:
+            report.add_warning(
+                f"{label} diagram_likec4 views_js does not resolve on disk: {views_js}"
+            )
+        if not has_static:
+            report.add_warning(
+                f"{label} diagram_likec4 has no static export alongside it — pair it with "
+                f"{'diagram_image' if label == 'overview' else 'diagram'} (likec4 export png) "
+                "so print and bundle-missing readers still see the diagram"
+            )
+
+    check_likec4(
+        overview, "overview", has_static=static_diagram_present(overview.get("diagram_image"))
+    )
+    for index, step in enumerate(steps, start=1):
+        if isinstance(step, dict):
+            check_likec4(
+                step, f"step {index}", has_static=static_diagram_present(step.get("diagram"))
+            )
 
     def check_video(spec: object, label: str) -> None:
         if not spec:
@@ -332,11 +404,11 @@ def _validate_media_presence(data: dict, report: QualityReport, *, base_dir: str
             report.add_warning(f"{label} video has no src")
             return
         if not src.startswith(("http://", "https://")) and base_dir is not None:
-            if _resolve_ref_path(src, base_dir, repo_root) is None:
+            if _resolve_media_path(src, base_dir, repo_root) is None:
                 report.add_warning(f"{label} video src does not resolve on disk: {src}")
         poster = _as_text(spec.get("poster"))
         if poster and base_dir is not None:
-            if _resolve_ref_path(poster, base_dir, repo_root) is None:
+            if _resolve_media_path(poster, base_dir, repo_root) is None:
                 report.add_warning(f"{label} video poster does not resolve on disk: {poster}")
 
     check_video(overview.get("video"), "overview")

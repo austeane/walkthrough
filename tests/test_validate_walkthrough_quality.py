@@ -395,3 +395,57 @@ class TestMediaPresence:
         data["steps"][0]["video"] = "https://example.com/tour.mp4"
         report = validate_walkthrough(data, base_dir=str(tmp_path))
         assert not any("video src" in w for w in report.warnings)
+
+    def test_likec4_clears_diagram_warning(self):
+        data = _valid_walkthrough()
+        data["overview"]["diagram_likec4"] = {
+            "views_js": "media/diagrams/likec4-views.js",
+            "view": "index",
+        }
+        report = validate_walkthrough(data)
+        assert not any("no architecture diagram" in w for w in report.warnings)
+
+    def test_likec4_without_static_export_warns(self, tmp_path: Path):
+        diagrams = tmp_path / "media" / "diagrams"
+        diagrams.mkdir(parents=True)
+        (diagrams / "likec4-views.js").write_text("// bundle", encoding="utf-8")
+        data = _valid_walkthrough()
+        data["overview"]["diagram_likec4"] = {
+            "views_js": "media/diagrams/likec4-views.js",
+            "view": "index",
+        }
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+        assert any("no static export alongside" in w for w in report.warnings)
+
+        # Naming a static export that does not exist on disk is not enough.
+        data["overview"]["diagram_image"] = "media/diagrams/index.light.png"
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+        assert any("no static export alongside" in w for w in report.warnings)
+
+        (diagrams / "index.light.png").write_bytes(b"\x89PNG fake")
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+        assert not any("no static export alongside" in w for w in report.warnings)
+
+    def test_likec4_remote_views_js_warns(self, tmp_path: Path):
+        data = _valid_walkthrough()
+        data["overview"]["diagram_likec4"] = {
+            "views_js": "https://cdn.example.com/likec4-views.js",
+            "view": "index",
+        }
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+        assert any("must be a local file" in w for w in report.warnings)
+
+    def test_likec4_unresolvable_views_js_warns(self, tmp_path: Path):
+        data = _valid_walkthrough()
+        data["steps"][0]["diagram_likec4"] = {
+            "views_js": "media/diagrams/gone.js",
+            "view": "cicd",
+        }
+        report = validate_walkthrough(data, base_dir=str(tmp_path))
+        assert any("views_js does not resolve" in w for w in report.warnings)
+
+    def test_likec4_missing_view_warns(self):
+        data = _valid_walkthrough()
+        data["overview"]["diagram_likec4"] = {"views_js": "media/diagrams/likec4-views.js"}
+        report = validate_walkthrough(data)
+        assert any("needs both views_js and view" in w for w in report.warnings)

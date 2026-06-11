@@ -1228,6 +1228,124 @@ class TestWalkthroughVideo:
         assert "<video" not in html
 
 
+class TestLikeC4Embed:
+    @staticmethod
+    def _walkthrough_with_embeds(tmp_path: Path) -> dict:
+        diagrams = tmp_path / "media" / "diagrams"
+        diagrams.mkdir(parents=True)
+        (diagrams / "likec4-views.js").write_text("// likec4 bundle", encoding="utf-8")
+        return {
+            "meta": {"repo_root": str(tmp_path)},
+            "overview": {
+                "goal": "Show the interactive diagram embed.",
+                "summary": ["One", "Two", "Three"],
+                "diagram_likec4": {
+                    "views_js": "media/diagrams/likec4-views.js",
+                    "view": "index",
+                    "caption": "Click into any box.",
+                },
+            },
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "A Step With A Live View",
+                    "takeaway": "The step gets its own view.",
+                    "intent": "Demonstrate per-step embeds.",
+                    "diagram_likec4": {
+                        "views_js": "media/diagrams/likec4-views.js",
+                        "view": "cicd",
+                        "height": "44vh",
+                    },
+                    "claims": [{"text": "Embed attached.", "confidence": "grounded"}],
+                }
+            ],
+        }
+
+    def test_render_embeds_overview_and_step_views(self, tmp_path: Path):
+        walkthrough = self._walkthrough_with_embeds(tmp_path)
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert 'view-id="index"' in html
+        assert 'view-id="cicd"' in html
+        assert "<c4-view data-likec4-view" in html
+        assert 'style="height: 44vh"' in html
+        assert "Click into any box." in html
+        # One bundle, one script tag — even with two embeds referencing it.
+        assert html.count('<script src="media/diagrams/likec4-views.js"></script>') == 1
+        # The resolved payloads stay out of the embedded DATA blob.
+        assert '"_likec4"' not in html
+        assert "_likec4_sources" not in html
+
+    def test_render_skips_missing_bundle(self, tmp_path: Path):
+        walkthrough = self._walkthrough_with_embeds(tmp_path)
+        walkthrough["overview"]["diagram_likec4"]["views_js"] = "media/diagrams/gone.js"
+        walkthrough["steps"][0].pop("diagram_likec4")
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert "<c4-view" not in html
+        assert '<div class="likec4-frame"' not in html
+        assert "<script src=" not in html
+
+    def test_remote_views_js_is_refused(self, tmp_path: Path):
+        walkthrough = self._walkthrough_with_embeds(tmp_path)
+        walkthrough["overview"]["diagram_likec4"]["views_js"] = "https://evil.example.com/x.js"
+        walkthrough["steps"][0].pop("diagram_likec4")
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert "<c4-view" not in html
+        assert "evil.example.com" not in html.split("const DATA")[0]
+        assert "<script src=" not in html
+
+    def test_invalid_tag_falls_back_to_c4_view(self, tmp_path: Path):
+        walkthrough = self._walkthrough_with_embeds(tmp_path)
+        walkthrough["overview"]["diagram_likec4"]["tag"] = "div onclick=alert(1)"
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        # The invalid tag never reaches markup (the raw spec string survives
+        # only as escaped JSON inside the DATA blob).
+        assert "<div onclick" not in html
+        assert "<c4-view data-likec4-view" in html
+
+    def test_static_fallback_rides_inside_embed(self, tmp_path: Path):
+        walkthrough = self._walkthrough_with_embeds(tmp_path)
+        png = tmp_path / "media" / "diagrams" / "index.png"
+        png.write_bytes(
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0bIDATx\x9cc\xf8"
+            b"\x0f\x00\x01\x01\x01\x00\x1b\xb6\xee\x56\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        walkthrough["overview"]["diagram_image"] = "media/diagrams/index.png"
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        assert 'class="likec4-fallback"' in html
+        assert html.index('<div class="likec4-frame"') < html.index('<div class="likec4-fallback">')
+
+
 class TestTallContentClamp:
     def test_template_ships_clamp_zones_and_controller(self, tmp_path: Path):
         walkthrough = {

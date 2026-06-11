@@ -120,6 +120,7 @@ Use `glossary` for acronyms, product names, and project shorthand that a new tea
 | `summary` | array of strings | 3-7 bullet points covering the key outcomes |
 | `key_files` | array of strings | Most important files that were created or modified |
 | `diagram_image` | string or object | Preferred overview diagram input. Use a string path for one exported image, or `{ "light": "...", "dark": "..." }` for theme-matched LikeC4 exports. Paths resolve against `meta.repo_root`, then the walkthrough JSON directory, and are embedded as data URIs during rendering. |
+| `diagram_likec4` | object | Optional **interactive** LikeC4 embed layered over the static export: `{ "views_js": "media/diagrams/likec4-views.js", "view": "index", "caption": "..." }`. Takes precedence over `diagram_image` on screen; the static export becomes the print / bundle-missing fallback, so always provide both. See [Interactive LikeC4 embeds](#interactive-likec4-embeds). |
 | `diagram_mermaid` | string | Optional fallback source diagram text showing architecture or flow. Prefer LikeC4 image exports for new walkthroughs; the renderer uses Mermaid only when no `diagram_image` is present, and if local Mermaid rendering is unavailable, the viewer shows inert preformatted text. |
 | `video` | object or string | Optional overview video (e.g. a HyperFrames-rendered tour): `{ "src": "media/overview.mp4", "poster": "media/poster.png", "caption": "..." }`, or a bare src string. See [Video](#video). |
 | `end_state` | object | Optional End State framing: `{ "goal": "...", "summary": [...] }`. Shown in the viewer's End State view; `goal`/`summary` remain the Journey framing and the fallback. See [View modes](#view-modes). |
@@ -166,6 +167,7 @@ Each step represents a logical unit of work in the walkthrough. Steps are ordere
 | `mode` | string | Optional view tag: `"end-state"`, `"journey"`, or `"both"` (default). Controls whether the step appears in the viewer's End State view, Journey view, or both. See [View modes](#view-modes). |
 | `end_state_order` | integer | Optional. Position of this step in the **End State view** only (Journey stays chronological). See [Per-view step ordering](#per-view-step-ordering). |
 | `diagram` | string or object | Optional per-step architecture diagram (string path or `{ "light": ..., "dark": ... }`), rendered as an always-visible figure under the intent. Paths resolve like `overview.diagram_image`. |
+| `diagram_likec4` | object | Optional per-step interactive LikeC4 embed, same shape as `overview.diagram_likec4` (give one component cluster its own live view). Pair it with `diagram` as the static fallback. See [Interactive LikeC4 embeds](#interactive-likec4-embeds). |
 | `diagram_caption` | string | Optional caption for the step diagram. |
 | `video` | object or string | Optional per-step video, same shape as `overview.video`. A step with a video gets a *smaller* prose budget — the video displaces text. See [Video](#video). |
 
@@ -323,6 +325,36 @@ one shape. They are typically produced with HyperFrames (see SKILL.md step
 Measured numbers and integrity caveats always survive as text (video is
 unsearchable); connective narration moves into the video. The gate warns when
 a video-bearing step or overview keeps ~full prose height.
+
+### Interactive LikeC4 embeds
+
+`overview.diagram_likec4` and `step.diagram_likec4` share one shape. They embed
+the LikeC4 webcomponent viewer — pan, zoom, element search, and click-through
+into nested views — instead of a flat image:
+
+```json
+"diagram_likec4": {
+  "views_js": "media/diagrams/likec4-views.js",
+  "view": "index",
+  "caption": "System context — click into any box for the next level down.",
+  "height": "44vh"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `views_js` | string | Path to the webcomponent bundle, resolved against `meta.repo_root`, then the walkthrough JSON's directory. **Local files only** — the bundle becomes an executable `<script src>`, so the renderer refuses remote URLs. Generate it with `likec4 codegen webcomponent <model-dir> -w c4 -o media/diagrams/likec4-views.js`. Like video, the bundle (~2.4 MB) is **never inlined** — the HTML references it relative to the output file, so ship the media folder alongside the HTML. One bundle serves every view; the renderer emits a single `<script>` tag per distinct bundle. |
+| `view` | string | The LikeC4 view id to show (e.g. `index`, `cicd`). |
+| `tag` | string | Custom-element name registered by the bundle. Defaults to `c4-view`, which matches `-w c4` above; only set this if you generated with a different prefix. |
+| `height` | string | Optional frame height as a simple CSS length (`44vh`, `420px`). Default is `70vh`; use a shorter frame for wide, shallow views like pipelines. |
+| `caption` | string | Optional one-line description rendered under the frame. |
+
+**Always pair it with a static export** (`overview.diagram_image` /
+`step.diagram`, from `likec4 export png`). The static image is what print and
+any reader missing the sidecar bundle sees — the viewer falls back to it
+automatically whenever the custom element is not defined. The gate warns when
+an embed has no static sibling. The embed follows the page theme toggle
+(light/dark) live.
 
 ### Decisions
 

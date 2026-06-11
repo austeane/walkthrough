@@ -1017,6 +1017,25 @@
         .overview-diagram img, .overview-diagram svg { max-height: 70vh; }
         .step-diagram img { max-height: 72vh; object-fit: contain; }
 
+        /* Interactive LikeC4 embed (sidecar likec4-views.js webcomponent).
+           The frame gives the webcomponent a real height; the static export
+           inside .likec4-fallback shows whenever the custom element is not
+           defined (bundle missing / moved / JS off) and in print. */
+        .likec4-frame {
+            width: 100%; height: 70vh; min-height: 360px;
+            border: 1px solid var(--hairline); border-radius: var(--radius);
+            overflow: hidden;
+        }
+        .likec4-frame > * { display: block; width: 100%; height: 100%; }
+        .likec4-embed { margin: 1.7rem 0 0; }
+        /* .overview-diagram is a centering flexbox for images — the embed needs
+           normal block flow so the frame spans the column and the caption sits below. */
+        .overview-diagram.likec4-embed, .step-diagram.likec4-embed { display: block; }
+        .likec4-embed .likec4-fallback { display: none; }
+        .likec4-embed:has(.likec4-frame > :not(:defined)) .likec4-frame { display: none; }
+        .likec4-embed:has(.likec4-frame > :not(:defined)) .likec4-fallback { display: block; }
+        .likec4-embed figcaption { margin: 0.7rem 0 0; font-size: 0.82rem; color: var(--text-2); line-height: 1.5; }
+
         /* Hyperframe / walkthrough video — the moving skim band. */
         .wt-video { margin: 1.7rem 0 0; }
         .wt-video video {
@@ -1046,6 +1065,8 @@
             .clamped { max-height: none !important; overflow: visible !important; }
             .clamped::after, .clamp-toggle { display: none !important; }
             .wt-video { display: none !important; }
+            .likec4-frame { display: none !important; }
+            .likec4-embed .likec4-fallback { display: block !important; }
             a { color: #000; text-decoration: none; }
         }
     </style>
@@ -1164,7 +1185,18 @@
                 </div>
                 {% endif %}
             </div>
-            {% if data.overview._diagram_image_light or data.overview._diagram_image_dark %}
+            {% if data.overview._likec4 %}
+            <figure class="overview-diagram likec4-embed reveal">
+              <div class="likec4-frame"{% if data.overview._likec4.height %} style="height: {{ data.overview._likec4.height }}"{% endif %}><{{ data.overview._likec4.tag }} data-likec4-view view-id="{{ data.overview._likec4.view }}" browser="true" color-scheme="dark"></{{ data.overview._likec4.tag }}></div>
+              {% if data.overview._diagram_image_light or data.overview._diagram_image_dark %}
+              <div class="likec4-fallback">
+                {% if data.overview._diagram_image_dark %}<img class="wt-diagram-img wt-diagram-dark" src="{{ data.overview._diagram_image_dark }}" alt="Architecture overview diagram">{% endif %}
+                {% if data.overview._diagram_image_light %}<img class="wt-diagram-img wt-diagram-light" src="{{ data.overview._diagram_image_light }}" alt="Architecture overview diagram">{% endif %}
+              </div>
+              {% endif %}
+              {% if data.overview._likec4.caption %}<figcaption>{{ data.overview._likec4.caption }}</figcaption>{% endif %}
+            </figure>
+            {% elif data.overview._diagram_image_light or data.overview._diagram_image_dark %}
             <div class="overview-diagram reveal">
               {% if data.overview._diagram_image_dark %}<img class="wt-diagram-img wt-diagram-dark" src="{{ data.overview._diagram_image_dark }}" alt="Architecture overview diagram">{% endif %}
               {% if data.overview._diagram_image_light %}<img class="wt-diagram-img wt-diagram-light" src="{{ data.overview._diagram_image_light }}" alt="Architecture overview diagram">{% endif %}
@@ -1302,7 +1334,20 @@
                 </figure>
                 {% endif %}
 
-                {% if step._diagram_image or step._diagram_image_light or step._diagram_image_dark %}
+                {% if step._likec4 %}
+                <figure class="step-diagram likec4-embed reveal">
+                  <div class="likec4-frame"{% if step._likec4.height %} style="height: {{ step._likec4.height }}"{% endif %}><{{ step._likec4.tag }} data-likec4-view view-id="{{ step._likec4.view }}" browser="true" color-scheme="dark"></{{ step._likec4.tag }}></div>
+                  {% if step._diagram_image or step._diagram_image_light or step._diagram_image_dark %}
+                  <div class="likec4-fallback">
+                    {% if step._diagram_image %}<img class="step-diagram__img" src="{{ step._diagram_image }}" alt="{{ step._diagram_caption | default('Architecture diagram for this step') }}">{% endif %}
+                    {% if step._diagram_image_dark %}<img class="wt-diagram-img wt-diagram-dark" src="{{ step._diagram_image_dark }}" alt="{{ step._diagram_caption | default('Architecture diagram for this step') }}">{% endif %}
+                    {% if step._diagram_image_light %}<img class="wt-diagram-img wt-diagram-light" src="{{ step._diagram_image_light }}" alt="{{ step._diagram_caption | default('Architecture diagram for this step') }}">{% endif %}
+                  </div>
+                  {% endif %}
+                  {% if step._likec4.caption %}<figcaption class="step-diagram__cap">{{ step._likec4.caption }}</figcaption>
+                  {% elif step._diagram_caption %}<figcaption class="step-diagram__cap">{{ step._diagram_caption }}</figcaption>{% endif %}
+                </figure>
+                {% elif step._diagram_image or step._diagram_image_light or step._diagram_image_dark %}
                 <figure class="step-diagram reveal">
                   {% if step._diagram_image %}<img class="step-diagram__img" src="{{ step._diagram_image }}" alt="{{ step._diagram_caption | default('Architecture diagram for this step') }}">
                   {% else %}
@@ -1774,13 +1819,21 @@
             const saved = localStorage.getItem('walkthrough-theme');
             if (saved) document.documentElement.setAttribute('data-theme', saved);
             this.updateThemeIcon();
+            this.syncLikeC4Theme();
             document.getElementById('themeToggle').addEventListener('click', () => {
                 const cur = document.documentElement.getAttribute('data-theme');
                 const next = cur === 'dark' ? 'light' : 'dark';
                 document.documentElement.setAttribute('data-theme', next);
                 localStorage.setItem('walkthrough-theme', next);
                 this.updateThemeIcon();
+                this.syncLikeC4Theme();
             });
+        }
+        /* Interactive LikeC4 embeds re-render reactively when their
+           color-scheme attribute changes — keep them on the page theme. */
+        syncLikeC4Theme() {
+            const theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+            document.querySelectorAll('[data-likec4-view]').forEach(el => el.setAttribute('color-scheme', theme));
         }
         updateThemeIcon() {
             const dark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -2518,5 +2571,7 @@
 
     document.addEventListener('DOMContentLoaded', () => { window.__walkthrough = new App(); });
     </script>
+    {% for src in data._likec4_sources %}<script src="{{ src }}"></script>
+    {% endfor %}
 </body>
 </html>
