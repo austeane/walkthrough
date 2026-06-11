@@ -62,7 +62,7 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
 
 ## Glossary
 
-Use `glossary` for acronyms, product names, and project shorthand that a new teammate may not know. The HTML viewer annotates matching terms in prose after load, so normal text escaping still applies and glossary terms are not injected into code blocks, diffs, commands, links, or controls.
+Use `glossary` for acronyms, product names, and project shorthand that a new teammate may not know. Nearly every walkthrough should ship one (the gate warns when it is missing); me-refresh artifacts scope it to genuinely external jargon. The HTML viewer annotates matching terms in prose after load, so normal text escaping still applies and glossary terms are not injected into code blocks, diffs, commands, links, or controls.
 
 ```json
 [
@@ -121,7 +121,11 @@ Use `glossary` for acronyms, product names, and project shorthand that a new tea
 | `key_files` | array of strings | Most important files that were created or modified |
 | `diagram_image` | string or object | Preferred overview diagram input. Use a string path for one exported image, or `{ "light": "...", "dark": "..." }` for theme-matched LikeC4 exports. Paths resolve against `meta.repo_root`, then the walkthrough JSON directory, and are embedded as data URIs during rendering. |
 | `diagram_mermaid` | string | Optional fallback source diagram text showing architecture or flow. Prefer LikeC4 image exports for new walkthroughs; the renderer uses Mermaid only when no `diagram_image` is present, and if local Mermaid rendering is unavailable, the viewer shows inert preformatted text. |
+| `video` | object or string | Optional overview video (e.g. a HyperFrames-rendered tour): `{ "src": "media/overview.mp4", "poster": "media/poster.png", "caption": "..." }`, or a bare src string. See [Video](#video). |
 | `end_state` | object | Optional End State framing: `{ "goal": "...", "summary": [...] }`. Shown in the viewer's End State view; `goal`/`summary` remain the Journey framing and the fallback. See [View modes](#view-modes). |
+
+Nearly every walkthrough should set `diagram_image` — the gate warns when no
+diagram is present anywhere in the artifact (overview or steps).
 
 The renderer also derives overview-only `_decision_index`, `_gotcha_index`,
 overflow lists, `_decision_total`, and `_gotcha_total` fields from per-step
@@ -161,6 +165,9 @@ Each step represents a logical unit of work in the walkthrough. Steps are ordere
 | `errors_encountered` | array | Problems hit and how they were resolved. Canonical entries are objects with `error` and optional `resolution`; the renderer tolerates legacy string entries. |
 | `mode` | string | Optional view tag: `"end-state"`, `"journey"`, or `"both"` (default). Controls whether the step appears in the viewer's End State view, Journey view, or both. See [View modes](#view-modes). |
 | `end_state_order` | integer | Optional. Position of this step in the **End State view** only (Journey stays chronological). See [Per-view step ordering](#per-view-step-ordering). |
+| `diagram` | string or object | Optional per-step architecture diagram (string path or `{ "light": ..., "dark": ... }`), rendered as an always-visible figure under the intent. Paths resolve like `overview.diagram_image`. |
+| `diagram_caption` | string | Optional caption for the step diagram. |
+| `video` | object or string | Optional per-step video, same shape as `overview.video`. A step with a video gets a *smaller* prose budget — the video displaces text. See [Video](#video). |
 
 ### The altitude ladder
 
@@ -291,6 +298,31 @@ Evidence fields contain artifacts extracted deterministically from session logs 
 | `group_role` | string | `"before"`, `"after"`, or `"standalone"` |
 | `width` | number | Image width in pixels |
 | `height` | number | Image height in pixels |
+
+### Video
+
+Overview-level (`overview.video`) and step-level (`step.video`) videos share
+one shape. They are typically produced with HyperFrames (see SKILL.md step
+7d — requires `npx skills add heygen-com/hyperframes`):
+
+```json
+"video": {
+  "src": "media/overview.mp4",
+  "poster": "media/overview-poster.png",
+  "caption": "90-second tour of what was built and what is proven"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `src` | string | Path to the mp4 (resolved against `meta.repo_root`, then the walkthrough JSON's directory) or an `https://` URL. The renderer references the file by a path **relative to the output HTML** — video bytes are never inlined, so ship the media folder alongside the HTML. |
+| `poster` | string | Optional poster image path; embedded as a data URI like a diagram. |
+| `caption` | string | Optional one-line description rendered under the player. |
+
+**Displacement rule:** a video replaces prose; it never sits on top of it.
+Measured numbers and integrity caveats always survive as text (video is
+unsearchable); connective narration moves into the video. The gate warns when
+a video-bearing step or overview keeps ~full prose height.
 
 ### Decisions
 
