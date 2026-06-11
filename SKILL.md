@@ -19,6 +19,14 @@ Generate walkthroughs that teach developers what was built, why, and how — fro
 
 **Dependencies**: Scripts require `jinja2` and `pygments`. Optional: `pillow` (image compression for screenshots), `playwright` (Path B git-history captures). If using a project with `pyproject.toml`, prefix commands with `uv run` (e.g., `uv run python3 scripts/render_html.py ...`).
 
+For the diagram and video defaults, set up once per machine:
+
+- **LikeC4** (diagrams — near-universal, see Editorial Rules):
+  - CLI: `npm install -g likec4` (or `brew install likec4`). `likec4 export png` drives a bundled Playwright Chromium — the first export may download it.
+  - Authoring skill: `npx skills add https://likec4.dev/` — loads the `likec4-dsl` skill (DSL syntax and patterns) for writing the `.c4` model.
+  - Optional MCP server for querying an existing model (element search, relationship discovery): `claude mcp add likec4 -- npx -y @likec4/mcp`.
+- **HyperFrames** (walkthrough videos, step 7d): `npx skills add heygen-com/hyperframes` — required before authoring any `video`. QA also wants `ffmpeg` on PATH for frame extraction (see 7d).
+
 ## Workflow
 
 ### 1. Reader Frame + Scoping Dialog
