@@ -165,6 +165,7 @@ _PX_TITLE = 1.0                    # step title (large font, short measure)
 _PX_LEAD = 0.45                    # takeaway / intent (lead fonts)
 _PX_BODY = 0.34                    # claims, callouts, constraints (body font)
 _PX_HERO = 2.2                     # overview hero title (display font)
+_PX_HERO_LONG = 1.3                # hero title past 140 chars (template downscales it)
 _STEP_FIXED_PX = 300               # eyebrow, margins, section padding
 _CLAIM_FIXED_PX = 16
 _CALLOUT_FIXED_PX = 110            # callout padding + label + spacing
@@ -238,13 +239,19 @@ def _estimate_overview_px(overview: dict) -> float:
                 total += _BULLET_FIXED_PX + _px(text, coeff)
         return total
 
-    journey_px = _px(overview.get("goal"), _PX_HERO)
+    def hero_px(goal: object) -> float:
+        # Mirrors the template: theses over 140 chars render at the smaller
+        # .hero__title--long size (paragraph scale, wider measure).
+        text = _as_text(goal)
+        return len(text) * (_PX_HERO_LONG if len(text) > 140 else _PX_HERO)
+
+    journey_px = hero_px(overview.get("goal"))
     journey_px += bullets_px(overview.get("summary"), _PX_LEAD)
 
-    es_px = _px(end_state.get("goal") or overview.get("goal"), _PX_HERO)
+    es_px = hero_px(end_state.get("goal") or overview.get("goal"))
     es_px += bullets_px(end_state.get("summary") or overview.get("summary"), _PX_LEAD)
     # The architecture panel and constraints list are clamp-bounded by the
-    # viewer (0.8 / 0.6 of a viewport) — and constraints are explicitly exempt
+    # viewer (0.7 / 0.5 of a viewport) — and constraints are explicitly exempt
     # from the brevity bias, so the lint must not push authors to thin them.
     # Count them at their rendered ceilings; the author's concision surface
     # is the goal sentence and the summary bullets.
@@ -255,8 +262,8 @@ def _estimate_overview_px(overview: dict) -> float:
             if isinstance(card, dict):
                 card_px += _ARCH_CARD_FIXED_PX + _px(card.get("component"), _PX_BODY)
                 card_px += _px(card.get("summary"), _PX_BODY)
-        es_px += min(card_px / 2, 0.8 * SCREEN_PX)  # two-column grid, clamped
-    es_px += min(bullets_px(end_state.get("constraints"), _PX_BODY), 0.6 * SCREEN_PX)
+        es_px += min(card_px / 2, 0.7 * SCREEN_PX)  # two-column grid, clamped
+    es_px += min(bullets_px(end_state.get("constraints"), _PX_BODY), 0.5 * SCREEN_PX)
 
     # The video is deliberately NOT counted: it is the displacement vehicle,
     # not prose, and counting it would penalize adding one.

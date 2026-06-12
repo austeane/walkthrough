@@ -358,6 +358,16 @@ class TestDensityBudget:
         report = validate_walkthrough(data)
         assert any("overview skim band" in w for w in report.warnings)
 
+    def test_long_hero_goal_estimates_at_downscaled_size(self):
+        # The template renders theses over 140 chars at the smaller
+        # .hero__title--long size; the estimator must mirror that, so a
+        # long goal costs LESS per character than the display-size rate.
+        from validate_walkthrough_quality import _estimate_overview_px
+
+        short = _estimate_overview_px({"goal": "g" * 140})
+        long = _estimate_overview_px({"goal": "g" * 141})
+        assert long < short
+
 
 class TestMediaPresence:
     def test_warns_on_missing_diagram_and_clears_with_diagram_image(self):
