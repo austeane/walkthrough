@@ -33,7 +33,16 @@ It is stdlib-only, prints what is available and what each gap blocks (with the e
 
 **Paths**: the commands below are written relative to this skill's directory. When your working directory is the target repo (the normal case), invoke scripts by absolute path (e.g. `python3 ~/.claude/skills/walkthrough/scripts/discover_sessions.py`) and keep `out/` in the working directory.
 
-**Optional tooling — never block a first walkthrough on it, never install it unprompted.** If LikeC4 or HyperFrames are not installed, produce the text-first walkthrough (the gate's "no diagram" warning is acceptable on a first run) and offer diagrams/video as a follow-up; ask before installing global npm packages or letting a CLI download a browser. Setup, once per machine, with the user's go-ahead:
+**Optional tooling — never block a first walkthrough on it, never install it silently.** When the doctor shows LikeC4 missing (or HyperFrames, if video is in scope), fold one permission question into the step 1 scoping dialog: diagrams need a one-time install (npm package + a headless-Chromium download), install now in the background? Then:
+
+- **Yes** → immediately spawn a **background install agent** and keep working — discovery, normalization, and chunking need none of this tooling, so the slow part (the Chromium download) runs concurrently instead of blocking the pipeline. In Claude Code use the Agent tool with `run_in_background: true`; agents without background subagents run the same commands as a detached shell with output to a log file. Install agent prompt:
+
+  > Install diagram tooling for the walkthrough skill. Run `npm install -g likec4` (fall back to `brew install likec4` if npm is unavailable). Then trigger the one-time headless-Chromium download by exporting a throwaway model: write `specification { element system }`, `model { sys = system 'S' }`, `views { view index { include * } }` to `/tmp/likec4-smoke/model.c4` and run `likec4 export png /tmp/likec4-smoke -o /tmp/likec4-smoke/out`. Report `likec4 --version`, whether the export produced a PNG, and any failure verbatim. *(If video is in scope, also run `npx skills add heygen-com/hyperframes` and report whether `ffmpeg` is on PATH.)*
+
+  Collect the agent's result before step 7 (assembly, where diagram authoring starts). If the install failed, say so and continue text-first — a failed optional install never blocks the walkthrough.
+- **No** (or the user is unsure) → produce the text-first walkthrough (the gate's "no diagram" warning is acceptable on a first run) and offer diagrams/video as a follow-up.
+
+Tooling reference, once per machine:
 
 - **LikeC4** (diagrams — near-universal once available, see Editorial Rules):
   - CLI: `npm install -g likec4` (or `brew install likec4`). `likec4 export png` drives a bundled Playwright Chromium — the first export may download it.
@@ -76,6 +85,10 @@ Avoid broad "everything" scope. If the user asks for everything, narrow it into 
 - "Extract from sessions" — Use screenshots already captured during agent work
 - "Capture from git history" — Reconstruct UI by checking out commits and screenshotting
 - "Both" — Extract session screenshots AND capture from git
+
+**Tooling installs** (ask only when `check_setup.py` flagged missing optional tooling): "Diagrams need a one-time install (likec4 + a headless-Chromium download). Install it now in the background while I gather context?"
+- "Yes, install in background" — Spawn the background install agent (see Setup) and proceed straight to Discovery; the install and the context-gathering run concurrently
+- "Not now" — Plan a text-first walkthrough; offer diagrams as a follow-up
 
 Store the choice as `media_mode` (`none`, `extract`, `capture`, or `both`). It controls whether `--preserve-screenshots` is passed to strip_binary, whether `capture_screenshots.py` runs, and whether the HTML gallery renders.
 For Path B (`capture`/`both`), capture files are written to `out/captures/manifest.json`; inject those captures into `out/walkthrough.json` before rendering (step 7c).

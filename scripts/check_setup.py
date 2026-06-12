@@ -100,8 +100,9 @@ def main():
                   % ", ".join(blocked))
         return 1
     print("READY: text-first walkthrough can run end-to-end. "
-          "[--] items are optional enhancements — never install them unprompted; "
-          "offer them as follow-ups.")
+          "[--] items are optional enhancements — ask the user once during scoping, "
+          "then install in the background while gathering context (see SKILL.md Setup); "
+          "never install them silently.")
     return 0
 
 
