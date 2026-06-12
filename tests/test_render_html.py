@@ -1450,3 +1450,100 @@ class TestTallContentClamp:
         assert 'class="es-constraints reveal" data-view-tag="end-state" data-clamp=' in html
         assert "initClamps()" in html
         assert "clamp-toggle" in html
+
+
+class TestSystemSection:
+    """The system reference (diagram + arch cards + constraints) renders as its
+    own synthesized section between the overview cover and step 1."""
+
+    def _render(self, tmp_path: Path, walkthrough: dict) -> str:
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        return output_path.read_text(encoding="utf-8")
+
+    def _walkthrough_with_end_state(self) -> dict:
+        return {
+            "meta": {"repo_root": "/tmp/p"},
+            "overview": {
+                "goal": "G",
+                "end_state": {
+                    "goal": "The destination.",
+                    "architecture": [
+                        {"component": "API layer", "summary": "Serves requests.", "step_ref": "step-1"}
+                    ],
+                    "constraints": [{"text": "Only one region.", "step_ref": "step-1"}],
+                },
+            },
+            "steps": [{"id": "step-1", "title": "Build", "claims": []}],
+        }
+
+    def test_system_section_synthesized_from_end_state(self, tmp_path: Path):
+        html = self._render(tmp_path, self._walkthrough_with_end_state())
+        assert 'id="system"' in html
+        assert "The system today" in html
+        # The cards and constraints live in the system section, not the overview.
+        overview_part = html.split('<section class="system step"')[0].split('id="overview"')[1]
+        system_part = html.split('<section class="system step"')[1].split('<article class="step"')[0]
+        assert "es-arch" not in overview_part and "es-constraints" not in overview_part
+        assert "API layer" in system_part and "Only one region." in system_part
+        # TOC gains the entry between Overview and step 1.
+        assert '<a class="toc-link" data-step="1" href="#system">' in html
+        # Steps shift by one ordinal (sections and TOC pair by array index).
+        assert 'id="step-1" data-step="2"' in html
+        assert 'data-step="2" href="#step-1"' in html or 'href="#step-1"' in html
+
+    def test_section_ordinals_shift_only_when_system_exists(self, tmp_path: Path):
+        plain = {
+            "meta": {"repo_root": "/tmp/p"},
+            "overview": {"goal": "G"},
+            "steps": [{"id": "step-1", "title": "Build", "claims": []}],
+        }
+        html = self._render(tmp_path, plain)
+        assert 'id="system"' not in html
+        assert 'id="step-1" data-step="1"' in html
+
+    def test_system_section_end_state_only_without_diagram(self, tmp_path: Path):
+        html = self._render(tmp_path, self._walkthrough_with_end_state())
+        # No diagram: hidden in journey view along with its TOC entry.
+        assert 'id="system" data-step="1" style="--es-order:0;--jy-order:0" data-view-tag="end-state"' in html
+
+    def test_diagram_renders_in_system_section_and_keeps_it_both_views(self, tmp_path: Path):
+        walkthrough = self._walkthrough_with_end_state()
+        walkthrough["overview"]["diagram_mermaid"] = "graph TD; A-->B"
+        html = self._render(tmp_path, walkthrough)
+        system_part = html.split('<section class="system step"')[1].split('<article class="step"')[0]
+        assert "overview-diagram" in system_part
+        # With a diagram the section serves both views: no view tag on it.
+        assert 'id="system" data-step="1" style="--es-order:0;--jy-order:0">' in html
+
+    def test_diagram_only_walkthrough_titles_section_system_map(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/p"},
+            "overview": {"goal": "G", "diagram_mermaid": "graph TD; A-->B"},
+            "steps": [{"id": "step-1", "title": "Build", "claims": []}],
+        }
+        html = self._render(tmp_path, walkthrough)
+        assert 'id="system"' in html
+        assert "System map" in html
+
+    def test_reasoning_map_renders_one_liners_without_rationale(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/p"},
+            "overview": {"goal": "G"},
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Build",
+                    "claims": [],
+                    "decisions": [{"decision": "Pick X over Y", "rationale": "X is simpler to operate."}],
+                }
+            ],
+        }
+        html = self._render(tmp_path, walkthrough)
+        # The map links the decision but carries no rationale paragraph;
+        # the rationale still renders inside the step itself.
+        assert "reasoning-map__text" in html
+        assert "reasoning-map__detail" not in html
+        assert "X is simpler to operate." in html

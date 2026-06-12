@@ -161,6 +161,8 @@ GLOSSARY_MAX_DEFINITION_CHARS = 300
 SCREEN_PX = 900                    # one laptop screen of content
 _EMBED_VIDEO_WARN_BYTES = 15 * 1024 * 1024  # embed=true above this → suggest a sidecar
 STEP_SCREEN_BUDGET = 2.0           # two screens per step
+OVERVIEW_SCREEN_BUDGET = 1.2       # the cover's prose (hero + bullets); the
+                                   # system reference lives on its own section
 _PX_TITLE = 1.0                    # step title (large font, short measure)
 _PX_LEAD = 0.45                    # takeaway / intent (lead fonts)
 _PX_BODY = 0.34                    # claims, callouts, constraints (body font)
@@ -171,7 +173,6 @@ _CLAIM_FIXED_PX = 16
 _CALLOUT_FIXED_PX = 110            # callout padding + label + spacing
 _ALT_FIXED_PX = 10
 _BULLET_FIXED_PX = 12
-_ARCH_CARD_FIXED_PX = 120
 _DIAGRAM_PX = 560                  # in-flow diagram figure (capped by CSS)
 _VIDEO_PX = 480                    # in-flow video block
 _FILES_ROW_PX = 90
@@ -224,11 +225,15 @@ def _estimate_step_px(step: dict, *, include_video: bool = True) -> float:
 
 
 def _estimate_overview_px(overview: dict) -> float:
-    """Skim-band volume of the overview (hero + end-state blocks). Bounded
-    blocks the template caps or clamps independently (diagram, jump grid,
-    reasoning maps) are excluded — this measures what authors control.
-    The viewer shows ONE view at a time (journey vs end-state), so the
-    estimate is the taller view, not the sum of both."""
+    """Skim-band volume of the overview cover (hero + summary bullets).
+    The system reference (architecture cards, constraints, diagram) renders
+    on its own synthesized "The system today" section, clamp-bounded by the
+    viewer — it is no longer overview height, and constraints are explicitly
+    exempt from the brevity bias anyway. Bounded blocks the template caps or
+    clamps independently (jump grid, reasoning maps) are excluded — this
+    measures what authors control. The viewer shows ONE view at a time
+    (journey vs end-state), so the estimate is the taller view, not the sum
+    of both."""
     end_state = overview.get("end_state") if isinstance(overview.get("end_state"), dict) else {}
 
     def bullets_px(source: object, coeff: float) -> float:
@@ -250,20 +255,6 @@ def _estimate_overview_px(overview: dict) -> float:
 
     es_px = hero_px(end_state.get("goal") or overview.get("goal"))
     es_px += bullets_px(end_state.get("summary") or overview.get("summary"), _PX_LEAD)
-    # The architecture panel and constraints list are clamp-bounded by the
-    # viewer (0.7 / 0.5 of a viewport) — and constraints are explicitly exempt
-    # from the brevity bias, so the lint must not push authors to thin them.
-    # Count them at their rendered ceilings; the author's concision surface
-    # is the goal sentence and the summary bullets.
-    architecture = end_state.get("architecture")
-    if isinstance(architecture, list):
-        card_px = 0.0
-        for card in architecture:
-            if isinstance(card, dict):
-                card_px += _ARCH_CARD_FIXED_PX + _px(card.get("component"), _PX_BODY)
-                card_px += _px(card.get("summary"), _PX_BODY)
-        es_px += min(card_px / 2, 0.7 * SCREEN_PX)  # two-column grid, clamped
-    es_px += min(bullets_px(end_state.get("constraints"), _PX_BODY), 0.5 * SCREEN_PX)
 
     # The video is deliberately NOT counted: it is the displacement vehicle,
     # not prose, and counting it would penalize adding one.
@@ -298,12 +289,15 @@ def _validate_density(data: dict, report: QualityReport) -> None:
                 )
     overview = data.get("overview") if isinstance(data.get("overview"), dict) else {}
     estimate = _estimate_overview_px(overview)
-    if estimate > budget:
+    overview_budget = SCREEN_PX * OVERVIEW_SCREEN_BUDGET
+    if estimate > overview_budget:
         report.add_warning(
-            f"overview skim band is ~{estimate / SCREEN_PX:.1f} screens tall (budget {STEP_SCREEN_BUDGET:.0f}) — "
-            "trim summary bullets and constraint wording (keep the measured numbers; cut connective prose)"
+            f"overview skim band is ~{estimate / SCREEN_PX:.1f} screens of prose "
+            f"(budget {OVERVIEW_SCREEN_BUDGET:.1f}) — tighten the goal sentence and summary "
+            "bullets (keep the measured numbers; cut connective prose); the system "
+            "reference renders on its own section and is not counted here"
         )
-    if overview.get("video") and estimate > budget * 0.6:
+    if overview.get("video") and estimate > overview_budget * 0.9:
         report.add_warning(
             "overview carries a video but the skim band is still "
             f"~{estimate / SCREEN_PX:.1f} screens of prose — the video should displace text"

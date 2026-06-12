@@ -267,13 +267,14 @@
         .es-arch__refs .es-arch__ref:hover { color: var(--accent); }
         .es-constraints__ref { font-family: var(--font-mono); font-size: 0.67rem; color: var(--text-3); text-decoration: none; white-space: nowrap; }
         .es-constraints__ref:hover { color: var(--accent); }
-        /* With a video in column 1, the arch panel must own rows 3–4 of column 2:
-           otherwise it shares row 3 with the video, the row stretches to the card
-           column's height, and a dead gap opens under the video before the
-           constraints row starts. Spanning makes video+constraints stack flush on
-           the left with the cards as a true side-by-side neighbor. */
-        .wt-video ~ .es-arch { grid-column: 2; grid-row: 3 / span 2; }
         .es-constraints { margin: 1.5rem 0 0.2rem; }
+        /* System section: arch cards | constraints side by side under the diagram. */
+        .system-cols {
+            display: grid;
+            grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+            column-gap: clamp(2rem, 4vw, 4.5rem);
+            align-items: start;
+        }
         .es-constraints ul { margin: 0; padding-left: 1.15rem; }
         .es-constraints li { font-size: 0.85rem; color: var(--text-2); line-height: 1.5; }
 
@@ -620,10 +621,6 @@
         }
         .reasoning-map__text {
             font-size: 0.88rem; line-height: 1.4; transition: color 0.16s ease;
-        }
-        .reasoning-map__detail {
-            display: block; margin-top: 0.15rem; color: var(--text-3);
-            font-size: 0.78rem; line-height: 1.35;
         }
         .reasoning-map__more {
             margin-top: 0.7rem;
@@ -973,6 +970,7 @@
            ========================================================= */
         @media (max-width: 1180px) {
             .overview .wrap { display: block; max-width: var(--maxw); }
+            .system-cols { display: block; }
             .hero__summary { margin-top: 1.35rem; }
         }
         @media (max-width: 860px) {
@@ -1088,6 +1086,17 @@
     <div class="progress" id="progress"></div>
 
     <!-- ===================== SIDEBAR ===================== -->
+    {# The system reference (diagram + arch cards + constraints) renders as its
+       own synthesized section between the overview and step 1 — the overview
+       stays a cover page. data-step values are array ordinals over all reading
+       sections (search/scrollspy/jump cards pair TOC links and sections by
+       index), so every step shifts by one when the system section exists.
+       Display numbering (Step N, jump-card 0N) is untouched. #}
+    {% set has_system_ref = data.overview._end_state_architecture or data.overview._end_state_constraints %}
+    {% set has_system_diagram = data.overview._likec4 or data.overview._diagram_image_light or data.overview._diagram_image_dark or data.overview._diagram_svg or data.overview.diagram_mermaid %}
+    {% set has_system = has_system_ref or has_system_diagram %}
+    {% set step_off = 1 if has_system else 0 %}
+    {% set system_title = 'The system today' if has_system_ref else 'System map' %}
     <nav class="sidebar" id="sidebar" aria-label="Table of contents">
         <div class="sidebar__head">
             <div class="sidebar__kicker">Walkthrough</div>
@@ -1095,8 +1104,11 @@
         </div>
         <ul class="toc" id="toc">
             <li style="--es-order:0;--jy-order:0"><a class="toc-link" data-step="0" href="#overview"><span class="toc-num">0</span><span class="toc-text">Overview</span></a></li>
+            {% if has_system %}
+            <li style="--es-order:0;--jy-order:0"{% if not has_system_diagram %} data-view-tag="end-state"{% endif %}><a class="toc-link" data-step="1" href="#system"><span class="toc-num">&middot;</span><span class="toc-text">{{ system_title }}</span></a></li>
+            {% endif %}
             {% for step in data.steps %}
-            <li style="--es-order:{{ step._es_order | default(loop.index) }};--jy-order:{{ step._jy_order | default(loop.index) }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}><a class="toc-link" data-step="{{ loop.index }}" href="#{{ step.id }}"><span class="toc-num">{{ loop.index }}</span><span class="toc-text">{{ step.title }}</span></a></li>
+            <li style="--es-order:{{ step._es_order | default(loop.index) }};--jy-order:{{ step._jy_order | default(loop.index) }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}><a class="toc-link" data-step="{{ loop.index + step_off }}" href="#{{ step.id }}"><span class="toc-num">{{ loop.index }}</span><span class="toc-text">{{ step.title }}</span></a></li>
             {% endfor %}
         </ul>
     </nav>
@@ -1162,27 +1174,6 @@
                     {% if data.overview._video.caption %}<figcaption class="wt-video__cap">{{ data.overview._video.caption }}</figcaption>{% endif %}
                 </figure>
                 {% endif %}
-                {% if data.overview._end_state_architecture %}
-                <div class="es-arch reveal" data-view-tag="end-state" data-clamp="0.7">
-                    <div class="es-arch__label">How it works today</div>
-                    <div class="es-arch__grid">
-                        {% for c in data.overview._end_state_architecture %}
-                        {% if c.step_id %}<a class="es-arch__card" href="#{{ c.step_id }}">{% else %}<div class="es-arch__card">{% endif %}
-                            <span class="es-arch__comp">{{ c.component }}</span>
-                            {% if c.summary %}<span class="es-arch__sum">{{ c.summary }}</span>{% endif %}
-                            {% if c.step_label %}<span class="es-arch__ref">{{ c.step_label }} &rarr;</span>{% endif %}
-                            {% if c.refs %}<span class="es-arch__refs">{% for r in c.refs %}<a class="es-arch__ref" href="#{{ r.step_id }}">{{ r.step_label }} &rarr;</a>{% endfor %}</span>{% endif %}
-                        {% if c.step_id %}</a>{% else %}</div>{% endif %}
-                        {% endfor %}
-                    </div>
-                </div>
-                {% endif %}
-                {% if data.overview._end_state_constraints %}
-                <div class="es-constraints reveal" data-view-tag="end-state" data-clamp="0.5">
-                    <div class="es-constraints__label">Current constraints</div>
-                    <ul>{% for c in data.overview._end_state_constraints %}<li>{{ c.text }}{% if c.step_id %} <a class="es-constraints__ref" href="#{{ c.step_id }}">{{ c.step_label }} &rarr;</a>{% endif %}</li>{% endfor %}</ul>
-                </div>
-                {% endif %}
                 <div class="stat-strip reveal">
                     <div class="stat"><span class="stat__n" data-stat="steps">{{ data.steps | length }}</span><span class="stat__l">steps</span></div>
                     <div class="stat"><span class="stat__n" data-stat="files">{{ stats.files }}</span><span class="stat__l">files</span></div>
@@ -1200,31 +1191,10 @@
                 </div>
                 {% endif %}
             </div>
-            {% if data.overview._likec4 %}
-            <figure class="overview-diagram likec4-embed reveal">
-              <div class="likec4-frame"{% if data.overview._likec4.height %} style="height: {{ data.overview._likec4.height }}"{% endif %}><{{ data.overview._likec4.tag }} data-likec4-view view-id="{{ data.overview._likec4.view }}" browser="true" color-scheme="dark"></{{ data.overview._likec4.tag }}></div>
-              {% if data.overview._diagram_image_light or data.overview._diagram_image_dark %}
-              <div class="likec4-fallback">
-                {% if data.overview._diagram_image_dark %}<img class="wt-diagram-img wt-diagram-dark" src="{{ data.overview._diagram_image_dark }}" alt="Architecture overview diagram">{% endif %}
-                {% if data.overview._diagram_image_light %}<img class="wt-diagram-img wt-diagram-light" src="{{ data.overview._diagram_image_light }}" alt="Architecture overview diagram">{% endif %}
-              </div>
-              {% endif %}
-              {% if data.overview._likec4.caption %}<figcaption>{{ data.overview._likec4.caption }}</figcaption>{% endif %}
-            </figure>
-            {% elif data.overview._diagram_image_light or data.overview._diagram_image_dark %}
-            <div class="overview-diagram reveal">
-              {% if data.overview._diagram_image_dark %}<img class="wt-diagram-img wt-diagram-dark" src="{{ data.overview._diagram_image_dark }}" alt="Architecture overview diagram">{% endif %}
-              {% if data.overview._diagram_image_light %}<img class="wt-diagram-img wt-diagram-light" src="{{ data.overview._diagram_image_light }}" alt="Architecture overview diagram">{% endif %}
-            </div>
-            {% elif data.overview._diagram_svg %}
-            <div class="overview-diagram reveal">{{ data.overview._diagram_svg | safe }}</div>
-            {% elif data.overview.diagram_mermaid %}
-            <div class="overview-diagram reveal"><pre>{{ data.overview.diagram_mermaid }}</pre></div>
-            {% endif %}
             {% if data.steps %}
             <div class="jump-grid reveal">
                 {% for step in data.steps %}
-                <a class="jump-card" href="#{{ step.id }}" data-step="{{ loop.index }}" style="--es-order:{{ step._es_order | default(loop.index) }};--jy-order:{{ step._jy_order | default(loop.index) }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}>
+                <a class="jump-card" href="#{{ step.id }}" data-step="{{ loop.index + step_off }}" style="--es-order:{{ step._es_order | default(loop.index) }};--jy-order:{{ step._jy_order | default(loop.index) }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}>
                     <span class="jump-card__n">{{ "%02d"|format(loop.index) }}</span>
                     <span class="jump-card__body">
                         <span class="jump-card__t">{{ step.title }}</span>
@@ -1264,7 +1234,6 @@
                                 <span class="reasoning-map__step">{{ "%02d"|format(item.step_number) }}</span>
                                     <span class="reasoning-map__body">
                                         <span class="reasoning-map__text">{{ item.text }}</span>
-                                        {% if item.detail %}<span class="reasoning-map__detail">{{ item.detail }}</span>{% endif %}
                                     </span>
                                 </a>
                         </li>
@@ -1280,7 +1249,6 @@
                                     <span class="reasoning-map__step">{{ "%02d"|format(item.step_number) }}</span>
                                     <span class="reasoning-map__body">
                                         <span class="reasoning-map__text">{{ item.text }}</span>
-                                        {% if item.detail %}<span class="reasoning-map__detail">{{ item.detail }}</span>{% endif %}
                                     </span>
                                 </a>
                             </li>
@@ -1300,7 +1268,6 @@
                                 <span class="reasoning-map__step">{{ "%02d"|format(item.step_number) }}</span>
                                 <span class="reasoning-map__body">
                                     <span class="reasoning-map__text">{{ item.text }}</span>
-                                    {% if item.detail %}<span class="reasoning-map__detail">{{ item.detail }}</span>{% endif %}
                                 </span>
                             </a>
                         </li>
@@ -1316,7 +1283,6 @@
                                     <span class="reasoning-map__step">{{ "%02d"|format(item.step_number) }}</span>
                                     <span class="reasoning-map__body">
                                         <span class="reasoning-map__text">{{ item.text }}</span>
-                                        {% if item.detail %}<span class="reasoning-map__detail">{{ item.detail }}</span>{% endif %}
                                     </span>
                                 </a>
                             </li>
@@ -1331,8 +1297,71 @@
             <hr class="section-rule">
         </section>
 
+        {% if has_system %}
+        {# Synthesized system reference: the overview's diagram + "how it works
+           today" cards + current constraints, promoted to their own section so
+           the overview stays a cover page. Untagged when a diagram exists (the
+           diagram serves both views); end-state-only otherwise. #}
+        <section class="system step" id="system" data-step="1" style="--es-order:0;--jy-order:0"{% if not has_system_diagram %} data-view-tag="end-state"{% endif %}>
+            <div class="wrap">
+                <div class="step-eyebrow reveal">
+                    <span>System</span>
+                    <button class="copy-link" data-step-id="system" title="Copy link to this section" aria-label="Copy link to this section">#</button>
+                </div>
+                <h2 class="step-title reveal">{{ system_title }}</h2>
+                {% if data.overview._likec4 %}
+                <figure class="overview-diagram likec4-embed reveal">
+                  <div class="likec4-frame"{% if data.overview._likec4.height %} style="height: {{ data.overview._likec4.height }}"{% endif %}><{{ data.overview._likec4.tag }} data-likec4-view view-id="{{ data.overview._likec4.view }}" browser="true" color-scheme="dark"></{{ data.overview._likec4.tag }}></div>
+                  {% if data.overview._diagram_image_light or data.overview._diagram_image_dark %}
+                  <div class="likec4-fallback">
+                    {% if data.overview._diagram_image_dark %}<img class="wt-diagram-img wt-diagram-dark" src="{{ data.overview._diagram_image_dark }}" alt="Architecture overview diagram">{% endif %}
+                    {% if data.overview._diagram_image_light %}<img class="wt-diagram-img wt-diagram-light" src="{{ data.overview._diagram_image_light }}" alt="Architecture overview diagram">{% endif %}
+                  </div>
+                  {% endif %}
+                  {% if data.overview._likec4.caption %}<figcaption>{{ data.overview._likec4.caption }}</figcaption>{% endif %}
+                </figure>
+                {% elif data.overview._diagram_image_light or data.overview._diagram_image_dark %}
+                <div class="overview-diagram reveal">
+                  {% if data.overview._diagram_image_dark %}<img class="wt-diagram-img wt-diagram-dark" src="{{ data.overview._diagram_image_dark }}" alt="Architecture overview diagram">{% endif %}
+                  {% if data.overview._diagram_image_light %}<img class="wt-diagram-img wt-diagram-light" src="{{ data.overview._diagram_image_light }}" alt="Architecture overview diagram">{% endif %}
+                </div>
+                {% elif data.overview._diagram_svg %}
+                <div class="overview-diagram reveal">{{ data.overview._diagram_svg | safe }}</div>
+                {% elif data.overview.diagram_mermaid %}
+                <div class="overview-diagram reveal"><pre>{{ data.overview.diagram_mermaid }}</pre></div>
+                {% endif %}
+                {% if has_system_ref %}
+                <div class="system-cols">
+                    {% if data.overview._end_state_architecture %}
+                    <div class="es-arch reveal" data-view-tag="end-state" data-clamp="0.7">
+                        <div class="es-arch__label">How it works today</div>
+                        <div class="es-arch__grid">
+                            {% for c in data.overview._end_state_architecture %}
+                            {% if c.step_id %}<a class="es-arch__card" href="#{{ c.step_id }}">{% else %}<div class="es-arch__card">{% endif %}
+                                <span class="es-arch__comp">{{ c.component }}</span>
+                                {% if c.summary %}<span class="es-arch__sum">{{ c.summary }}</span>{% endif %}
+                                {% if c.step_label %}<span class="es-arch__ref">{{ c.step_label }} &rarr;</span>{% endif %}
+                                {% if c.refs %}<span class="es-arch__refs">{% for r in c.refs %}<a class="es-arch__ref" href="#{{ r.step_id }}">{{ r.step_label }} &rarr;</a>{% endfor %}</span>{% endif %}
+                            {% if c.step_id %}</a>{% else %}</div>{% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if data.overview._end_state_constraints %}
+                    <div class="es-constraints reveal" data-view-tag="end-state" data-clamp="0.5">
+                        <div class="es-constraints__label">Current constraints</div>
+                        <ul>{% for c in data.overview._end_state_constraints %}<li>{{ c.text }}{% if c.step_id %} <a class="es-constraints__ref" href="#{{ c.step_id }}">{{ c.step_label }} &rarr;</a>{% endif %}</li>{% endfor %}</ul>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+            <hr class="section-rule">
+        </section>
+        {% endif %}
+
         {% for step in data.steps %}
-        <article class="step" id="{{ step.id }}" data-step="{{ loop.index }}" data-step-id="{{ step.id }}" style="--es-order:{{ step._es_order | default(loop.index) }};--jy-order:{{ step._jy_order | default(loop.index) }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}>
+        <article class="step" id="{{ step.id }}" data-step="{{ loop.index + step_off }}" data-step-id="{{ step.id }}" style="--es-order:{{ step._es_order | default(loop.index) }};--jy-order:{{ step._jy_order | default(loop.index) }}"{% if step.mode in ['journey','end-state'] %} data-view-tag="{{ step.mode }}"{% endif %}>
             <div class="wrap">
                 <div class="step-eyebrow reveal">
                     <span>Step {{ loop.index }}</span>

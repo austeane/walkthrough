@@ -128,14 +128,22 @@ Use `glossary` for acronyms, product names, and project shorthand that a new tea
 Nearly every walkthrough should set `diagram_image` — the gate warns when no
 diagram is present anywhere in the artifact (overview or steps).
 
+The overview renders as a **cover page**: goal, summary bullets, video, stats,
+the step jump grid, key files, and the reasoning maps. The diagram — together
+with `end_state.architecture` and `end_state.constraints` — renders on a
+synthesized **"The system today"** section (`#system`) between the overview and
+step 1, with its own TOC entry. Nothing extra to author: the section is built
+from the fields above.
+
 The renderer also derives overview-only `_decision_index`, `_gotcha_index`,
 overflow lists, `_decision_total`, and `_gotcha_total` fields from per-step
 `decisions` and `errors_encountered`. The visible overview map samples across
 steps before taking second items from any one step; overflow stays available
 behind collapsed "show more" controls, and each item links to the matching
-decision/gotcha callout. Authors should not write those private fields directly;
-make the first decision/gotcha in each step the one a scanning teammate should
-see first.
+decision/gotcha callout. Map entries render as **one-liners** — the decision or
+gotcha statement only; the rationale/fix paragraph lives in the step it links
+to. Authors should not write those private fields directly; make the first
+decision/gotcha in each step the one a scanning teammate should see first.
 
 ## Steps
 
@@ -472,7 +480,9 @@ transformation; the end-state framing names the destination as a noun phrase. If
 two goals could swap unnoticed, rewrite one.
 
 `end_state` also accepts two optional fields that build a **destination-first reference**
-for readers who skip the chronology, both rendered in the End State view only:
+for readers who skip the chronology. Both render in the End State view only, on the
+synthesized "The system today" section between the overview cover and step 1 (alongside
+the overview diagram), so the overview itself stays a one-to-two-screen cover:
 
 | Field | Type | Notes |
 | --- | --- | --- |
