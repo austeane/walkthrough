@@ -6,6 +6,8 @@ Usage:
     python scripts/normalize_claude.py --input session.jsonl --subagents path1.jsonl,path2.jsonl --output normalized.jsonl
 """
 
+from __future__ import annotations
+
 import argparse
 import glob
 import json

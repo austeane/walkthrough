@@ -10,6 +10,8 @@ Usage:
       --output card.json
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys

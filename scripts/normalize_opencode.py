@@ -6,6 +6,8 @@ Usage:
     python scripts/normalize_opencode.py --input session.jsonl --output normalized.jsonl
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 from datetime import datetime, timezone

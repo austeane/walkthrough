@@ -13,6 +13,7 @@ media = ["Pillow>=10.0"]
 capture = ["playwright>=1.40"]
 
 [project.scripts]
+walkthrough-doctor = "scripts.check_setup:main"
 walkthrough-discover = "scripts.discover_sessions:main"
 walkthrough-strip = "scripts.strip_binary:main"
 walkthrough-normalize-claude = "scripts.normalize_claude:main"

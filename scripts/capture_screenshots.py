@@ -16,6 +16,8 @@ Usage:
 Dependencies: playwright (pip install playwright && playwright install chromium)
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os

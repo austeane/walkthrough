@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = ["jinja2>=3.1", "pygments>=2.17"]
+# ///
 """Render walkthrough.json into a single-file walkthrough.html.
 
 Reads a walkthrough JSON file, generates Pygments CSS for syntax-highlighted
 diff hunks, renders the Jinja2 template, embeds the JSON data for client-side
 interactivity, and writes a self-contained HTML file.
+
+This is the only pipeline script with third-party dependencies. The inline
+metadata block above lets `uv run scripts/render_html.py ...` resolve them in
+an isolated environment from any working directory (note: the script path must
+be the command — `uv run python3 scripts/render_html.py` ignores the block and
+uses whatever project environment the working directory resolves to).
 """
 
 from __future__ import annotations

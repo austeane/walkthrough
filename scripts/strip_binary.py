@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Remove base64/binary content from JSONL files to prevent context window blowouts."""
 
+from __future__ import annotations
+
 import argparse
 import json
 import re

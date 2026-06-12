@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Discover Codex CLI, Claude Code, and OpenCode sessions on disk."""
 
+from __future__ import annotations
+
 import argparse
 import glob
 import json

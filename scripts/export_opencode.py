@@ -5,6 +5,8 @@ Usage:
     python scripts/export_opencode.py --session-id ses_123 --output session.jsonl
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os

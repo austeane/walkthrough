@@ -24,6 +24,8 @@ Usage:
     python3 scripts/project_events.py --input normalized.jsonl --output projected.jsonl
 """
 
+from __future__ import annotations
+
 import argparse
 import copy
 import json

@@ -5,6 +5,8 @@ Usage:
     python scripts/normalize_codex.py --input rollout.jsonl --output normalized.jsonl
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os

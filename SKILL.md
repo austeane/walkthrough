@@ -17,11 +17,25 @@ Generate walkthroughs that teach developers what was built, why, and how — fro
 
 **Bias**: Prefer brevity and focus over completeness. A strong walkthrough deliberately omits low-signal changes, side quests, routine tool use, and repeated implementation detail. Cover the smallest set of concepts that lets the target reader accomplish the stated purpose.
 
-**Dependencies**: Scripts require `jinja2` and `pygments`. Optional: `pillow` (image compression for screenshots), `playwright` (Path B git-history captures). If using a project with `pyproject.toml`, prefix commands with `uv run` (e.g., `uv run python3 scripts/render_html.py ...`).
+## Setup
 
-For the diagram and video defaults, set up once per machine:
+**First run on a new machine: run the doctor.**
 
-- **LikeC4** (diagrams — near-universal, see Editorial Rules):
+```bash
+python3 scripts/check_setup.py
+```
+
+It is stdlib-only, prints what is available and what each gap blocks (with the exact remedy), and exits 0 when a text-first walkthrough can be produced end-to-end. Facts it encodes:
+
+- **Python 3.9+ is the floor.** Every pipeline script through step 7 (discovery → normalize → chunk → merge → quality gate) is stdlib-only and runs on the stock macOS `python3`. No venv, no install step.
+- **Only rendering (step 8) has dependencies** (`jinja2`, `pygments`). Best-first ways to satisfy them: `uv run scripts/render_html.py ...` (the script carries PEP 723 inline metadata, so uv resolves deps in an isolated environment from any working directory); or `python3 -m pip install --user jinja2 pygments`; or, inside the skill repo itself, `uv sync` once. **Caution:** `uv run python3 scripts/render_html.py` from inside another project resolves *that project's* environment and fails — keep the script path as the command so the inline metadata wins.
+- Optional libraries: `pillow` (screenshot compression), `playwright` (Path B git-history captures only).
+
+**Paths**: the commands below are written relative to this skill's directory. When your working directory is the target repo (the normal case), invoke scripts by absolute path (e.g. `python3 ~/.claude/skills/walkthrough/scripts/discover_sessions.py`) and keep `out/` in the working directory.
+
+**Optional tooling — never block a first walkthrough on it, never install it unprompted.** If LikeC4 or HyperFrames are not installed, produce the text-first walkthrough (the gate's "no diagram" warning is acceptable on a first run) and offer diagrams/video as a follow-up; ask before installing global npm packages or letting a CLI download a browser. Setup, once per machine, with the user's go-ahead:
+
+- **LikeC4** (diagrams — near-universal once available, see Editorial Rules):
   - CLI: `npm install -g likec4` (or `brew install likec4`). `likec4 export png` drives a bundled Playwright Chromium — the first export may download it.
   - Authoring skill: `npx skills add https://likec4.dev/` — loads the `likec4-dsl` skill (DSL syntax and patterns) for writing the `.c4` model.
   - Optional MCP server for querying an existing model (element search, relationship discovery): `claude mcp add likec4 -- npx -y @likec4/mcp`.
@@ -508,6 +522,8 @@ python3 scripts/render_html.py \
   --captures-manifest out/captures/manifest.json
 ```
 
+If `python3` lacks jinja2/pygments, substitute `uv run scripts/render_html.py ...` — the script's inline metadata resolves them in an isolated environment (see Setup).
+
 If media was curated manually in `out/walkthrough.json` (for example, live `qcdev` DevTools captures already attached), render without auto-manifest attachment to avoid accidental duplicate/legacy media injection:
 
 ```bash
@@ -601,6 +617,7 @@ All scripts are available as `uv run` commands via entry points (e.g., `uv run w
 
 | Script | Entry Point | Purpose | Input | Output |
 |--------|------------|---------|-------|--------|
+| `check_setup.py` | `walkthrough-doctor` | First-run environment check | none | Readiness report |
 | `discover_sessions.py` | `walkthrough-discover` | Find sessions | CLI flags | JSON list to stdout |
 | `strip_binary.py` | `walkthrough-strip` | Remove base64/binary | JSONL | Cleaned JSONL |
 | `normalize_codex.py` | `walkthrough-normalize-codex` | Codex → normalized | JSONL | Normalized JSONL |
