@@ -28,3 +28,4 @@ out/
 walkthrough-repomix.txt
 .repomix-walkthrough-skill.json
 ui-review-presentation-workflow.md
+justfile
