@@ -904,29 +904,18 @@
         }
         .glossary-term--link { cursor: pointer; }
         .glossary-term--link:hover { color: var(--accent); }
-        .glossary-term::before,
-        .glossary-term::after {
-            position: absolute;
-            left: 50%;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.16s var(--ease), transform 0.16s var(--ease);
-            z-index: 950;
-        }
-        .glossary-term::before {
-            content: "";
-            bottom: calc(100% + 0.24rem);
-            width: 0.7rem;
-            height: 0.7rem;
-            background: var(--surface);
-            border-right: 1px solid var(--border);
-            border-bottom: 1px solid var(--border);
-            transform: translate(-50%, 0.35rem) rotate(45deg);
-        }
-        .glossary-term::after {
-            content: attr(data-glossary-tooltip);
-            bottom: calc(100% + 0.55rem);
-            width: max-content;
+
+        /* Shared, body-level tooltip. A single fixed-position element (appended
+           to <body> by initGlossary) shown for whichever glossary term is
+           hovered/focused. Using one body-level node — rather than a pseudo
+           element on each term — means no ancestor `overflow` (the clamped
+           claims/end-state zones) and no sticky header can ever clip it, and JS
+           can flip it below the term when there isn't room above. */
+        .glossary-tooltip {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 1200;
             max-width: min(24rem, 78vw);
             padding: 0.65rem 0.75rem;
             border: 1px solid var(--border);
@@ -941,18 +930,14 @@
             line-height: 1.35;
             text-align: left;
             white-space: pre-wrap;
-            transform: translate(-50%, 0.35rem);
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(0.35rem);
+            transition: opacity 0.16s var(--ease), transform 0.16s var(--ease);
         }
-        .glossary-term:hover::before,
-        .glossary-term:hover::after,
-        .glossary-term:focus-visible::before,
-        .glossary-term:focus-visible::after {
+        .glossary-tooltip--visible {
             opacity: 1;
-            transform: translate(-50%, 0) rotate(45deg);
-        }
-        .glossary-term:hover::after,
-        .glossary-term:focus-visible::after {
-            transform: translate(-50%, 0);
+            transform: translateY(0);
         }
 
         /* Prose cross-reference links: repo paths, link_map identifiers, and
@@ -1076,7 +1061,7 @@
             .sidebar, .topbar, .progress, .deck-viewport, .lightbox,
             .copy-btn, .copy-link, .hamburger { display: none !important; }
             .glossary-term { color: inherit; border-bottom: none; }
-            .glossary-term::before, .glossary-term::after { display: none; }
+            .glossary-tooltip { display: none !important; }
             body { background: #fff; color: #000; }
             .reading-view { display: block !important; margin: 0; padding: 0; }
             .overview::before, .overview::after { display: none; }
@@ -2294,6 +2279,126 @@
                     container.querySelectorAll(targetSelector)
                         .forEach(target => this.annotateGlossaryTarget(target, entries, seen));
                 });
+
+            this.initGlossaryTooltip();
+        }
+
+        /* Shared body-level tooltip wiring. One fixed-position node, shown for
+           whichever .glossary-term is hovered or keyboard-focused. Delegated
+           listeners cover terms that may be (re)created later. The node lives on
+           <body>, so no ancestor overflow or the sticky header can clip it, and
+           positionGlossaryTooltip() flips it below the term when there is no
+           room above. */
+        initGlossaryTooltip() {
+            if (this.glossaryTip) return;
+            const tip = document.createElement('div');
+            tip.className = 'glossary-tooltip';
+            tip.setAttribute('role', 'tooltip');
+            tip.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(tip);
+            this.glossaryTip = tip;
+            this.glossaryTipTerm = null;
+
+            const show = (term) => {
+                const text = term && term.dataset ? term.dataset.glossaryTooltip : '';
+                if (!text) return;
+                this.glossaryTipTerm = term;
+                tip.textContent = text;
+                tip.setAttribute('aria-hidden', 'false');
+                // Make it measurable before positioning, then reveal.
+                tip.style.visibility = 'hidden';
+                tip.classList.add('glossary-tooltip--visible');
+                this.positionGlossaryTooltip(term);
+                tip.style.visibility = '';
+            };
+            const hide = (term) => {
+                // Ignore stale hide events from a term we already moved off of.
+                if (term && this.glossaryTipTerm && term !== this.glossaryTipTerm) return;
+                this.glossaryTipTerm = null;
+                tip.classList.remove('glossary-tooltip--visible');
+                tip.setAttribute('aria-hidden', 'true');
+            };
+            this.hideGlossaryTooltip = () => hide(null);
+
+            const matchTerm = (e) => {
+                const t = e.target;
+                return t && t.closest ? t.closest('.glossary-term') : null;
+            };
+            // mouseenter/leave and focusin/out bubble (capture for the mouse pair),
+            // so a single set of delegated listeners on <body> covers every term.
+            document.body.addEventListener('mouseover', (e) => {
+                const term = matchTerm(e);
+                if (term) show(term);
+            });
+            document.body.addEventListener('mouseout', (e) => {
+                const term = matchTerm(e);
+                if (!term) return;
+                // Don't hide when moving within the same term's child nodes.
+                const to = e.relatedTarget;
+                if (to && term.contains(to)) return;
+                hide(term);
+            });
+            document.body.addEventListener('focusin', (e) => {
+                const term = matchTerm(e);
+                if (term) show(term);
+            });
+            document.body.addEventListener('focusout', (e) => {
+                const term = matchTerm(e);
+                if (term) hide(term);
+            });
+            // Keep it anchored / hidden as the page moves under it.
+            window.addEventListener('scroll', () => {
+                if (this.glossaryTipTerm) this.positionGlossaryTooltip(this.glossaryTipTerm);
+            }, true);
+            window.addEventListener('resize', () => {
+                if (this.glossaryTipTerm) this.positionGlossaryTooltip(this.glossaryTipTerm);
+            });
+        }
+
+        /* Place the shared tooltip relative to `term` using viewport (fixed)
+           coordinates. Default: centered above the term. Flip below when the
+           tooltip's top would intrude on the sticky header or go off the top of
+           the viewport; if there is no room either way, pin to whichever side
+           has more space. Always clamp horizontally to the viewport. */
+        positionGlossaryTooltip(term) {
+            const tip = this.glossaryTip;
+            if (!tip || !term || !term.isConnected) return;
+            const rect = term.getBoundingClientRect();
+            const tipRect = tip.getBoundingClientRect();
+            const tipW = tipRect.width;
+            const tipH = tipRect.height;
+            const vw = document.documentElement.clientWidth || window.innerWidth;
+            const vh = document.documentElement.clientHeight || window.innerHeight;
+            const margin = 8;
+            const gap = 8; // space between term and tooltip
+            // Sticky header height (0 in present mode / print, where --header-h is overridden).
+            const headerVar = getComputedStyle(document.documentElement).getPropertyValue('--header-h');
+            const headerH = parseFloat(headerVar) || 0;
+            const topSafe = headerH + margin;
+
+            // Vertical: prefer above; flip below when it would cross the header
+            // or the top of the viewport.
+            const roomAbove = rect.top - topSafe;
+            const roomBelow = vh - margin - rect.bottom;
+            let top;
+            if (tipH + gap <= roomAbove) {
+                top = rect.top - gap - tipH;            // above
+            } else if (tipH + gap <= roomBelow) {
+                top = rect.bottom + gap;                // below
+            } else if (roomBelow >= roomAbove) {
+                top = rect.bottom + gap;                // not enough either side: more room below
+            } else {
+                top = topSafe;                          // not enough either side: pin under header
+            }
+            // Final vertical clamp so it never leaves the safe band.
+            top = Math.max(topSafe, Math.min(top, vh - margin - tipH));
+
+            // Horizontal: center on the term, then clamp into the viewport.
+            let left = rect.left + rect.width / 2 - tipW / 2;
+            left = Math.max(margin, Math.min(left, vw - margin - tipW));
+
+            tip.style.left = Math.round(left) + 'px';
+            tip.style.top = Math.round(top) + 'px';
         }
 
         normalizeGlossary(raw) {
@@ -2832,6 +2937,8 @@
                         present ? this.deck.goToSlide(this.deck.total - 1) : this.reading.goToBoundary('end');
                         break;
                     case 'Escape':
+                        if (this.glossaryTipTerm && this.glossaryTipTerm.blur) this.glossaryTipTerm.blur();
+                        if (this.hideGlossaryTooltip) this.hideGlossaryTooltip();
                         this.closeSidebar();
                         break;
                 }

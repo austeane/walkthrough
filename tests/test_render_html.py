@@ -589,6 +589,42 @@ class TestRenderHtml:
         assert "</script><script>alert(1)</script>" not in html
         assert "<\\/script><script>alert(1)<\\/script>" in html
 
+    def test_render_uses_body_level_glossary_tooltip_that_cannot_be_clipped(
+        self, tmp_path: Path
+    ):
+        """Tooltips are a shared body-level fixed element positioned by JS, not a
+        pseudo-element on each term (which an ancestor's overflow or the sticky
+        header could clip). The JS must flip the tooltip below the term and clamp
+        it into the viewport, and print must still hide it."""
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/project"},
+            "overview": {
+                "goal": "IaC foundation",
+                "summary": ["Each unit is a deployable boundary."],
+            },
+            "glossary": [
+                {"term": "unit", "definition": "A deployable Terragrunt boundary."}
+            ],
+            "steps": [],
+        }
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        html = output_path.read_text(encoding="utf-8")
+
+        # Shared body-level node + JS positioning hooks are wired in.
+        assert "glossary-tooltip" in html
+        assert "initGlossaryTooltip()" in html
+        assert "positionGlossaryTooltip" in html
+        assert "getBoundingClientRect" in html
+        assert "document.body.appendChild" in html
+        # The old pseudo-element tooltip is gone (no double tooltip, no clipping).
+        assert 'content: attr(data-glossary-tooltip)' not in html
+        # Print keeps tooltips hidden.
+        assert ".glossary-tooltip { display: none !important; }" in html
+
     def test_render_inlines_rendered_mermaid_svg(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         def fake_render_mermaid_svg(_: str) -> str:
             return "<svg class=\"mermaid-svg\" viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\" /></svg>"
