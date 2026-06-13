@@ -1547,3 +1547,208 @@ class TestSystemSection:
         assert "reasoning-map__text" in html
         assert "reasoning-map__detail" not in html
         assert "X is simpler to operate." in html
+
+
+# ---------------------------------------------------------------------------
+# Prose links: auto path-linkify, meta.link_map, markdown links, link_mode
+# ---------------------------------------------------------------------------
+
+import shutil
+import subprocess
+import textwrap
+
+
+def _render(tmp_path: Path, walkthrough: dict) -> str:
+    input_path = tmp_path / "walkthrough.json"
+    output_path = tmp_path / "walkthrough.html"
+    input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+    render(input_path, output_path, DEFAULT_TEMPLATE)
+    return output_path.read_text(encoding="utf-8")
+
+
+class TestProseLinksTemplateWiring:
+    """The prose-link logic is client-side JS, so assert it ships in the template
+    and is wired into the init sequence before the glossary (so glossary's tree
+    walker — which skips inside <a> — can never double-wrap a linked token)."""
+
+    def test_template_defines_prose_link_methods(self):
+        t = Path(DEFAULT_TEMPLATE).read_text(encoding="utf-8")
+        for needed in (
+            "initProseLinks()",
+            "proseLinkMode()",
+            "normalizeLinkMap()",
+            "proseLinkRegexes(",
+            "linkifyProseTextNode(",
+            "resolveProseHref(",
+            "githubTreeOrBlobHref(",
+            "'xref'",
+        ):
+            assert needed in t, needed
+
+    def test_prose_links_run_before_glossary(self):
+        t = Path(DEFAULT_TEMPLATE).read_text(encoding="utf-8")
+        assert t.index("this.initProseLinks();") < t.index("this.initGlossary();")
+
+    def test_xref_style_present(self):
+        t = Path(DEFAULT_TEMPLATE).read_text(encoding="utf-8")
+        assert ".xref {" in t
+
+    def test_link_map_and_link_mode_round_trip_into_data(self, tmp_path: Path):
+        walkthrough = {
+            "meta": {
+                "repo": "github.com/fastloop-ai/knd-monorepo",
+                "git": {"branch": "main"},
+                "link_mode": "github",
+                "link_map": {"project-foundation": "infra/live/dev/project-foundation"},
+            },
+            "overview": {"goal": "G", "summary": ["Touches infra/live/dev and project-foundation."]},
+            "steps": [{"id": "step-1", "title": "Build", "claims": []}],
+        }
+        html = _render(tmp_path, walkthrough)
+        # meta survives into the embedded DATA so client JS can read it.
+        assert '"link_mode": "github"' in html or '"link_mode":"github"' in html
+        assert "project-foundation" in html
+        assert "infra/live/dev/project-foundation" in html
+
+
+NODE = shutil.which("node")
+
+
+@pytest.mark.skipif(NODE is None, reason="node not available")
+class TestProseLinksBehavior:
+    """Exercise the ACTUAL JS helpers extracted from the template under node, with
+    a minimal stub for `this`/DATA, so the load-bearing regexes and href resolver
+    are tested for real (not just for presence)."""
+
+    @staticmethod
+    def _extract_method(source: str, name: str) -> str:
+        """Extract the method DEFINITION `name(...) { ... }` (a definition starts a
+        line, unlike call sites which are preceded by `.` or `(`) by brace-matching."""
+        import re as _re
+        m = _re.search(r"\n[ \t]*(" + _re.escape(name) + r"\([^)]*\)\s*\{)", source)
+        assert m, f"could not find method definition {name}"
+        start = m.start(1)
+        i = source.index("{", start)
+        depth = 0
+        j = i
+        while j < len(source):
+            c = source[j]
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[start : j + 1]
+            j += 1
+        raise AssertionError(f"could not extract method {name}")
+
+    def _run(self, data_meta: dict, calls_js: str) -> dict:
+        template = Path(DEFAULT_TEMPLATE).read_text(encoding="utf-8")
+        methods = [
+            "githubFileHref", "githubTreeOrBlobHref", "getRepoRoot", "normalizeFileRef",
+            "proseLinkMode", "normalizeLinkMap", "proseLinkRegexes", "resolveProseHref",
+        ]
+        method_src = ",\n".join(self._extract_method(template, m) for m in methods)
+        harness = textwrap.dedent(
+            """
+            const DATA = %s;
+            const obj = {
+            %s
+            };
+            const out = (function(){ %s })();
+            console.log(JSON.stringify(out));
+            """
+        ) % (
+            json.dumps({"meta": data_meta}),
+            method_src,
+            calls_js,
+        )
+        proc = subprocess.run(
+            [NODE, "-e", harness],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout.strip())
+
+    def _eval(self, meta: dict, body: str):
+        return self._run(meta, body)
+
+    GH_META = {"repo": "github.com/fastloop-ai/knd-monorepo", "git": {"branch": "main"}}
+
+    def test_path_to_github_blob_and_tree(self):
+        out = self._eval(self.GH_META, """
+            const mode = obj.proseLinkMode();
+            return {
+                mode,
+                dir: obj.resolveProseHref('infra/live/dev', mode, true, false),
+                file: obj.resolveProseHref('infra/modules/monitoring/main.tf', mode, true, false),
+                justfile: obj.resolveProseHref('justfile', mode, true, false),
+            };
+        """)
+        assert out["mode"] == "github"
+        assert out["dir"] == "https://github.com/fastloop-ai/knd-monorepo/tree/main/infra/live/dev"
+        assert out["file"] == "https://github.com/fastloop-ai/knd-monorepo/blob/main/infra/modules/monitoring/main.tf"
+        assert out["justfile"] == "https://github.com/fastloop-ai/knd-monorepo/blob/main/justfile"
+
+    def test_link_mode_off_drops_path_but_keeps_explicit(self):
+        out = self._eval({**self.GH_META, "link_mode": "off"}, """
+            const mode = obj.proseLinkMode();
+            return {
+                mode,
+                path: obj.resolveProseHref('infra/live/dev', mode, true, false),
+                explicit: obj.resolveProseHref('https://example.com', mode, true, true),
+            };
+        """)
+        assert out["mode"] == "off"
+        assert out["path"] == ""
+        assert out["explicit"] == "https://example.com"
+
+    def test_editor_mode_uses_cursor(self):
+        out = self._eval({"repo_root": "/Users/dev/proj", "link_mode": "editor"}, """
+            const mode = obj.proseLinkMode();
+            return { mode, path: obj.resolveProseHref('infra/live/dev', mode, true, false) };
+        """)
+        assert out["mode"] == "editor"
+        assert out["path"].startswith("cursor://file//Users/dev/proj/infra/live/dev")
+
+    def test_default_mode_without_repo_is_off(self):
+        out = self._eval({}, "return { mode: obj.proseLinkMode() };")
+        assert out["mode"] == "off"
+
+    def test_default_mode_with_github_repo_is_github(self):
+        out = self._eval(self.GH_META, "return { mode: obj.proseLinkMode() };")
+        assert out["mode"] == "github"
+
+    def test_link_map_normalized_longest_first(self):
+        out = self._eval(
+            {**self.GH_META, "link_map": {"gemini": "infra/x", "gemini-search": "infra/modules/gemini-search"}},
+            "return obj.normalizeLinkMap();",
+        )
+        assert out[0]["token"] == "gemini-search"
+
+    def test_path_regex_matches_real_tokens(self):
+        out = self._eval(self.GH_META, """
+            const res = obj.proseLinkRegexes([]);
+            const probe = (s) => { res.path.lastIndex = 0; const m = res.path.exec(s); return m ? m[1] : null; };
+            return {
+                a: probe('see infra/live/dev for details'),
+                b: probe('the .github/workflows/infra.yml file'),
+                c: probe('run justfile now'),
+                d: probe('no path here at all'),
+                e: probe('scripts/ci/check-iam-authority.sh runs'),
+            };
+        """)
+        assert out["a"] == "infra/live/dev"
+        assert out["b"] == ".github/workflows/infra.yml"
+        assert out["c"] == "justfile"
+        assert out["d"] is None
+        assert out["e"] == "scripts/ci/check-iam-authority.sh"
+
+    def test_markdown_link_regex(self):
+        out = self._eval(self.GH_META, r"""
+            const res = obj.proseLinkRegexes([]);
+            const m = res.md.exec('see [the docs](https://example.com/x) here');
+            return { label: m[1], url: m[2].trim() };
+        """)
+        assert out["label"] == "the docs"
+        assert out["url"] == "https://example.com/x"

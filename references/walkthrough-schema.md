@@ -40,7 +40,9 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
   "audience": "teammate",
   "purpose": "onboard",
   "detail_level": "both/toggleable",
-  "media_mode": "none"
+  "media_mode": "none",
+  "link_mode": "github",
+  "link_map": { "project-foundation": "infra/live/dev/project-foundation" }
 }
 ```
 
@@ -59,6 +61,18 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
 | `purpose` | string | Why the walkthrough exists, e.g. `"onboard"`, `"understand"`, or `"review"`. Used to decide what earns space. |
 | `detail_level` | string | Desired depth, e.g. `"high-level"`, `"technical"`, or `"both/toggleable"`. Controls depth, not breadth. |
 | `media_mode` | string | Screenshot mode: `"none"`, `"extract"`, `"capture"`, or `"both"` |
+| `link_mode` | string | Controls how prose links resolve: `"github"` (build GitHub `blob`/`tree` links from `meta.repo` + branch), `"editor"` (local `cursor://` links via `meta.repo_root`), or `"off"` (paths/identifiers stay plain text; explicit markdown links still render). When omitted, defaults to `"github"` when `meta.repo` is a usable GitHub repo, else `"editor"` when `repo_root` is set, else `"off"`. |
+| `link_map` | object | Optional `{ "<token>": "<repo-relative-path>" }` map. Bare identifiers in prose that are not literal paths (unit/module names like `project-foundation`) are matched as whole words and linked to the mapped path. Longer tokens win over shorter prefixes. |
+
+### Prose links
+
+Beyond the glossary, the HTML viewer makes hyperlinking a first-class, general capability over narrative prose (titles, summaries, takeaways, intents, claims, callouts, end-state architecture/constraints — the same targets the glossary annotates). Three layers, all applied client-side after load, before the glossary, so links never double-wrap (no nested anchors):
+
+1. **Auto path-linkify.** Repo-relative path tokens (`infra/live/dev`, `.github/workflows/infra.yml`, `infra/modules/monitoring/main.tf`, `scripts/ci/check-iam-authority.sh`, `justfile`) are detected and turned into links per `link_mode` — `blob` for files (last segment has a dot, or a known extensionless filename like `justfile`/`Dockerfile`), `tree` for directories. No authoring needed.
+2. **`meta.link_map` identifiers.** For bare names that are not literal paths, map the token to a repo-relative path; matched as whole words and linked the same way.
+3. **Inline markdown links.** `[label](https://…)` anywhere in prose renders as a real anchor — the general escape hatch for ANY link. Absolute URLs (`http(s)`, `mailto:`, `cursor://`, `vscode://`, `#anchor`) pass through verbatim regardless of `link_mode`; bare paths inside a markdown link resolve through `link_mode` like an auto-linkified path.
+
+Links are skipped inside code, diffs, commands, existing anchors, and glossary terms. Walkthroughs that set none of these meta keys render exactly as before (the default mode is inferred from `meta.repo`/`meta.repo_root`).
 
 ## Glossary
 

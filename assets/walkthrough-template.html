@@ -955,6 +955,18 @@
             transform: translate(-50%, 0);
         }
 
+        /* Prose cross-reference links: repo paths, link_map identifiers, and
+           inline [label](url) markdown links rendered as real anchors. They read
+           as quiet links (dotted underline) so they don't shout over the prose. */
+        .xref {
+            color: inherit;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+            text-underline-offset: 2px;
+            text-decoration-thickness: 1px;
+        }
+        .xref:hover { text-decoration-style: solid; color: var(--accent); }
+
         /* =========================================================
            REVEAL ANIMATION
            ========================================================= */
@@ -1852,6 +1864,7 @@
             this.initExpandAll();
             this.initCopy();
             this.initMediaGalleries();
+            this.initProseLinks();
             this.initGlossary();
             this.initClamps();
             this.initLightbox();
@@ -2053,6 +2066,212 @@
                 }
                 this.syncExpandAllLabel();
             });
+        }
+
+        /* --- Prose links: make hyperlinking a first-class renderer capability ---
+           Three layers, all applied client-side over the same prose targets the
+           glossary uses (and BEFORE the glossary, so its tree walker — which
+           rejects text inside <a> — never double-wraps a token we linked):
+
+             1. Inline markdown links  [label](https://…)  -> real anchors.
+                The general escape hatch for ANY link an author wants.
+             2. Repo-relative path tokens (infra/live/dev, justfile,
+                infra/modules/monitoring/main.tf) -> GitHub blob/tree links.
+             3. meta.link_map identifiers (bare unit/module names) -> the
+                repo-relative path the author maps them to.
+
+           meta.link_mode controls the target: "github" (default when meta.repo
+           is a github repo), "editor" (cursor:// links via repo_root), or "off"
+           (paths/identifiers stay plain text; markdown links still render —
+           they're explicit author intent). Walkthroughs without any of these
+           meta keys render exactly as before. */
+        initProseLinks() {
+            const mode = this.proseLinkMode();
+            const linkMap = this.normalizeLinkMap();
+            const targetSelector = this.proseTargetSelector();
+            [document.querySelector('.reading-view'), document.querySelector('.deck-viewport')]
+                .filter(Boolean)
+                .forEach(container => {
+                    container.querySelectorAll(targetSelector)
+                        .forEach(target => this.linkifyProseTarget(target, mode, linkMap));
+                });
+        }
+
+        proseLinkMode() {
+            const meta = (DATA && DATA.meta) || {};
+            const raw = String(meta.link_mode || '').trim().toLowerCase();
+            if (raw === 'off' || raw === 'editor' || raw === 'github') return raw;
+            // Default: github when meta.repo names a github repo, else editor when
+            // a repo_root exists (so paths still link to the local editor), else off.
+            if (this.githubFileHref('x')) return 'github';
+            if (this.getRepoRoot()) return 'editor';
+            return 'off';
+        }
+
+        normalizeLinkMap() {
+            const meta = (DATA && DATA.meta) || {};
+            const raw = meta.link_map;
+            const out = [];
+            if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+                Object.keys(raw).forEach(token => {
+                    const tok = String(token || '').trim();
+                    const target = String(raw[token] || '').trim();
+                    if (tok && target) out.push({ token: tok, target });
+                });
+            }
+            // Longest token first so a longer identifier wins over a prefix.
+            out.sort((a, b) => b.token.length - a.token.length);
+            return out;
+        }
+
+        proseTargetSelector() {
+            return [
+                '.hero__title', '.hero__summary', '.es-summary', '.es-architecture', '.es-constraints',
+                '.jump-card__t', '.jump-card__d', '.step-title', '.step-takeaway', '.step-intent',
+                '.claim', '.callout__title', '.callout__body', '.reasoning-map__item',
+                '.slide__title', '.slide__takeaway', '.slide__intent', '.slide__summary', '.slide__claim',
+                '.slide__file'
+            ].join(',');
+        }
+
+        /* Build the path-token regex once. A path is a token that starts with one of
+           the known top-level repo dirs and contains a slash, OR a bare known root
+           file (justfile). The boundary classes keep it from matching mid-identifier
+           or the tail of a longer path. The last segment having a dot => a file. */
+        proseLinkRegexes(linkMap) {
+            const PATH = '(?:infra|scripts|docs|services|assets|tests|references|src|e2e|db|likec4|\\.github|\\.agents)/[A-Za-z0-9_./-]*[A-Za-z0-9_]';
+            const ROOT_FILES = '(?:justfile|Justfile|pyproject\\.toml|README\\.md)';
+            const path = new RegExp('(?:^|(?<![\\w/.\\-]))(' + PATH + '|' + ROOT_FILES + ')(?![\\w/.\\-])');
+            // Markdown links: [label](url). url may be http(s), cursor://, vscode://,
+            // mailto:, or a repo-relative/absolute path.
+            const md = /\[([^\]\n]+)\]\((\s*[^)\s]+\s*)\)/;
+            let identifier = null;
+            if (linkMap.length) {
+                const alt = linkMap
+                    .map(e => e.token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+                    .join('|');
+                identifier = new RegExp('(?:^|(?<![\\w/.\\-]))(' + alt + ')(?![\\w/.\\-])');
+            }
+            return { md, path, identifier };
+        }
+
+        linkifyProseTarget(target, mode, linkMap) {
+            const res = this.proseLinkRegexes(linkMap);
+            const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT, {
+                acceptNode: (node) => {
+                    if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+                    const parent = node.parentElement;
+                    if (!parent || parent.closest('code, pre, kbd, samp, a, button, input, textarea, .glossary-term, .diff, .cmd')) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            });
+            const nodes = [];
+            while (walker.nextNode()) nodes.push(walker.currentNode);
+            nodes.forEach(node => this.linkifyProseTextNode(node, res, mode, linkMap));
+        }
+
+        linkifyProseTextNode(node, res, mode, linkMap) {
+            let text = node.nodeValue;
+            const frag = document.createDocumentFragment();
+            let changed = false;
+
+            while (text) {
+                // Find the earliest match across the three categories. Markdown links
+                // win ties (they bracket their own label, so they must consume first).
+                const candidates = [];
+                const mdM = res.md.exec(text);
+                if (mdM) candidates.push({ kind: 'md', index: mdM.index, m: mdM });
+                const pathM = res.path.exec(text);
+                if (pathM) candidates.push({ kind: 'path', index: pathM.index, m: pathM });
+                if (res.identifier) {
+                    const idM = res.identifier.exec(text);
+                    if (idM) candidates.push({ kind: 'id', index: idM.index, m: idM });
+                }
+                if (!candidates.length) {
+                    frag.appendChild(document.createTextNode(text));
+                    break;
+                }
+                candidates.sort((a, b) =>
+                    a.index !== b.index ? a.index - b.index
+                        : (a.kind === 'md' ? -1 : b.kind === 'md' ? 1 : 0));
+                const best = candidates[0];
+                const full = best.m[0];
+                // The captured token may sit after a leading boundary char the regex
+                // consumed (path/id); recompute the token's real start.
+                let tokenStart = best.index;
+                let label, href, consumeLen;
+
+                if (best.kind === 'md') {
+                    label = best.m[1];
+                    const url = best.m[2].trim();
+                    href = this.resolveProseHref(url, mode, /*isPath*/ true, /*explicit*/ true);
+                    consumeLen = full.length;
+                } else {
+                    const token = best.m[1];
+                    tokenStart = best.index + full.indexOf(token);
+                    label = token;
+                    consumeLen = (tokenStart - best.index) + token.length;
+                    if (best.kind === 'path') {
+                        href = this.resolveProseHref(token, mode, /*isPath*/ true, /*explicit*/ false);
+                    } else {
+                        const entry = linkMap.find(e => e.token === token);
+                        href = entry ? this.resolveProseHref(entry.target, mode, /*isPath*/ true, /*explicit*/ false) : '';
+                    }
+                }
+
+                // Emit any leading boundary text the regex consumed before the token.
+                if (tokenStart > 0) frag.appendChild(document.createTextNode(text.slice(0, tokenStart)));
+
+                if (href) {
+                    const a = document.createElement('a');
+                    a.className = 'xref';
+                    a.href = href;
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    a.textContent = label;
+                    frag.appendChild(a);
+                    changed = true;
+                } else {
+                    // No usable target (e.g. link_mode "off" for a path): keep plain text.
+                    frag.appendChild(document.createTextNode(label));
+                }
+                text = text.slice(best.index + consumeLen);
+            }
+
+            if (changed && node.parentNode) node.parentNode.replaceChild(frag, node);
+        }
+
+        /* Turn a path / url / identifier-target into a final href under the active
+           mode. `explicit` markdown URLs that are already absolute (http, cursor,
+           mailto, …) pass through untouched even when mode is "off" or "editor". */
+        resolveProseHref(value, mode, isPath, explicit) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            if (/^(https?:|mailto:|cursor:|vscode:|tel:|#)/i.test(raw)) return raw;
+            if (!isPath) return '';
+            if (mode === 'off' && !explicit) return '';
+            if (mode === 'github') {
+                const last = raw.replace(/\/+$/, '').split('/').pop() || '';
+                // A dot in the last segment => a file (blob). A handful of common
+                // extensionless filenames are files too (justfile, Dockerfile, …);
+                // everything else is treated as a directory (tree).
+                const EXTLESS_FILES = /^(justfile|dockerfile|makefile|procfile|gemfile|rakefile|brewfile|caddyfile|vagrantfile)$/i;
+                const kind = (last.includes('.') || EXTLESS_FILES.test(last)) ? 'blob' : 'tree';
+                const gh = this.githubTreeOrBlobHref(raw, kind);
+                if (gh) return gh;
+            }
+            // editor mode, or github mode with no usable repo: local editor link.
+            const ref = this.normalizeFileRef(raw);
+            return ref.cursorHref || '';
+        }
+
+        /* Like githubFileHref but honoring blob-vs-tree (githubFileHref is blob-only). */
+        githubTreeOrBlobHref(filePath, kind) {
+            const blob = this.githubFileHref(filePath);
+            if (!blob) return '';
+            return kind === 'tree' ? blob.replace('/blob/', '/tree/') : blob;
         }
 
         /* --- Glossary: safely annotate jargon/acronyms in narrative text --- */
