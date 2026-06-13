@@ -1632,7 +1632,7 @@ class TestProseLinksTemplateWiring:
     def test_link_map_and_link_mode_round_trip_into_data(self, tmp_path: Path):
         walkthrough = {
             "meta": {
-                "repo": "github.com/fastloop-ai/knd-monorepo",
+                "repo": "github.com/example-org/example-repo",
                 "git": {"branch": "main"},
                 "link_mode": "github",
                 "link_map": {"project-foundation": "infra/live/dev/project-foundation"},
@@ -1709,7 +1709,7 @@ class TestProseLinksBehavior:
     def _eval(self, meta: dict, body: str):
         return self._run(meta, body)
 
-    GH_META = {"repo": "github.com/fastloop-ai/knd-monorepo", "git": {"branch": "main"}}
+    GH_META = {"repo": "github.com/example-org/example-repo", "git": {"branch": "main"}}
 
     def test_path_to_github_blob_and_tree(self):
         out = self._eval(self.GH_META, """
@@ -1722,9 +1722,9 @@ class TestProseLinksBehavior:
             };
         """)
         assert out["mode"] == "github"
-        assert out["dir"] == "https://github.com/fastloop-ai/knd-monorepo/tree/main/infra/live/dev"
-        assert out["file"] == "https://github.com/fastloop-ai/knd-monorepo/blob/main/infra/modules/monitoring/main.tf"
-        assert out["justfile"] == "https://github.com/fastloop-ai/knd-monorepo/blob/main/justfile"
+        assert out["dir"] == "https://github.com/example-org/example-repo/tree/main/infra/live/dev"
+        assert out["file"] == "https://github.com/example-org/example-repo/blob/main/infra/modules/monitoring/main.tf"
+        assert out["justfile"] == "https://github.com/example-org/example-repo/blob/main/justfile"
 
     def test_link_mode_off_drops_path_but_keeps_explicit(self):
         out = self._eval({**self.GH_META, "link_mode": "off"}, """
