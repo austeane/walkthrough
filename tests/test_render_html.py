@@ -1617,9 +1617,23 @@ class TestProseLinksTemplateWiring:
             "linkifyProseTextNode(",
             "resolveProseHref(",
             "githubTreeOrBlobHref(",
+            "glossaryLinkLookup()",
+            "proseLinkTooltip(",
             "'xref'",
         ):
             assert needed in t, needed
+
+    def test_tooltip_links_reuse_glossary_engine(self):
+        """A tooltip'd prose link adds `glossary-term` and `data-glossary-tooltip`
+        so the existing body-level tooltip engine (which keys off `.glossary-term`)
+        shows it with zero engine changes — and the flip-below positioner applies."""
+        t = Path(DEFAULT_TEMPLATE).read_text(encoding="utf-8")
+        assert "a.classList.add('glossary-term')" in t
+        assert "a.dataset.glossaryTooltip = tip" in t
+        # Confirm the body-level engine still targets any .glossary-term (covers
+        # our anchors) and that the flip-below positioner keys off the same class.
+        assert "closest('.glossary-term')" in t
+        assert ".glossary-term" in t  # positionGlossaryTooltip operates on the term
 
     def test_prose_links_run_before_glossary(self):
         t = Path(DEFAULT_TEMPLATE).read_text(encoding="utf-8")
@@ -1683,8 +1697,17 @@ class TestProseLinksBehavior:
         methods = [
             "githubFileHref", "githubTreeOrBlobHref", "getRepoRoot", "normalizeFileRef",
             "proseLinkMode", "normalizeLinkMap", "proseLinkRegexes", "resolveProseHref",
+            "normalizeGlossary", "normalizeGlossaryHref", "glossaryRegex",
+            "glossaryLinkLookup", "proseLinkTooltip",
         ]
         method_src = ",\n".join(self._extract_method(template, m) for m in methods)
+        # A glossary, when given, sits at DATA top level (as initGlossary reads it),
+        # not under meta. Callers pass it via the special "_glossary" meta key.
+        data_meta = dict(data_meta)  # don't mutate a shared class-attr dict
+        glossary = data_meta.pop("_glossary", None)
+        data = {"meta": data_meta}
+        if glossary is not None:
+            data["glossary"] = glossary
         harness = textwrap.dedent(
             """
             const DATA = %s;
@@ -1695,7 +1718,7 @@ class TestProseLinksBehavior:
             console.log(JSON.stringify(out));
             """
         ) % (
-            json.dumps({"meta": data_meta}),
+            json.dumps(data),
             method_src,
             calls_js,
         )
@@ -1788,3 +1811,292 @@ class TestProseLinksBehavior:
         """)
         assert out["label"] == "the docs"
         assert out["url"] == "https://example.com/x"
+
+    def test_markdown_link_regex_captures_double_quoted_title(self):
+        out = self._eval(self.GH_META, r"""
+            const res = obj.proseLinkRegexes([]);
+            const m = res.md.exec('see [the docs](https://example.com/x "hover text") here');
+            return { label: m[1], url: m[2].trim(), title: m[3] };
+        """)
+        assert out["label"] == "the docs"
+        assert out["url"] == "https://example.com/x"
+        assert out["title"] == "hover text"
+
+    def test_markdown_link_regex_captures_single_quoted_title(self):
+        out = self._eval(self.GH_META, r"""
+            const res = obj.proseLinkRegexes([]);
+            const m = res.md.exec("see [the docs](https://example.com/x 'tip!') here");
+            return { url: m[2].trim(), title3: m[3], title4: m[4] };
+        """)
+        assert out["url"] == "https://example.com/x"
+        # The single-quoted title is captured in group 4.
+        assert out["title4"] == "tip!"
+
+    def test_link_map_object_form_carries_path_and_tooltip(self):
+        out = self._eval(
+            {
+                **self.GH_META,
+                "link_map": {
+                    "project-adopt": {"path": "infra/live/prod/project-adopt", "tooltip": "Adopts the live project"},
+                    "plain-token": "infra/x",
+                },
+            },
+            "return obj.normalizeLinkMap();",
+        )
+        by_token = {e["token"]: e for e in out}
+        assert by_token["project-adopt"]["target"] == "infra/live/prod/project-adopt"
+        assert by_token["project-adopt"]["tooltip"] == "Adopts the live project"
+        # String form still works and yields an empty tooltip.
+        assert by_token["plain-token"]["target"] == "infra/x"
+        assert by_token["plain-token"]["tooltip"] == ""
+
+    def test_link_map_object_form_accepts_href(self):
+        out = self._eval(
+            {**self.GH_META, "link_map": {"ext": {"href": "https://example.com/ext", "tooltip": "External"}}},
+            "return obj.normalizeLinkMap();",
+        )
+        assert out[0]["target"] == "https://example.com/ext"
+        assert out[0]["tooltip"] == "External"
+
+    GLOSS_META = {
+        **GH_META,
+        "_glossary": [
+            {"term": "Terragrunt", "aliases": ["TG"], "definition": "IaC orchestration tool"},
+            {"term": "audit-logging", "definition": "The audit module", "file": "infra/modules/audit-logging"},
+        ],
+    }
+
+    def test_tooltip_precedence_explicit_wins(self):
+        out = self._eval(self.GLOSS_META, """
+            return {
+                explicit: obj.proseLinkTooltip('Author tip', 'Terragrunt', 'infra/modules/audit-logging'),
+            };
+        """)
+        # Explicit author text beats any glossary inheritance.
+        assert out["explicit"] == "Author tip"
+
+    def test_tooltip_inherits_glossary_by_text(self):
+        out = self._eval(self.GLOSS_META, """
+            return {
+                exact: obj.proseLinkTooltip('', 'Terragrunt', 'infra/live/dev'),
+                alias: obj.proseLinkTooltip('', 'TG', 'infra/live/dev'),
+                caseInsensitive: obj.proseLinkTooltip('', 'terragrunt', 'infra/live/dev'),
+            };
+        """)
+        assert "Terragrunt" in out["exact"] and "IaC orchestration tool" in out["exact"]
+        # Alias resolves to the same entry's tooltip.
+        assert "Terragrunt" in out["alias"]
+        assert "Terragrunt" in out["caseInsensitive"]
+
+    def test_tooltip_inherits_glossary_by_target_path(self):
+        out = self._eval(self.GLOSS_META, """
+            return {
+                byPath: obj.proseLinkTooltip('', 'some link text', 'infra/modules/audit-logging'),
+                byPathLeadingDot: obj.proseLinkTooltip('', 'x', './infra/modules/audit-logging'),
+            };
+        """)
+        assert "audit-logging" in out["byPath"] and "The audit module" in out["byPath"]
+        assert "audit-logging" in out["byPathLeadingDot"]
+
+    def test_tooltip_empty_when_no_match(self):
+        out = self._eval(self.GLOSS_META, """
+            return { none: obj.proseLinkTooltip('', 'no-such-term', 'infra/no/match') };
+        """)
+        assert out["none"] == ""
+
+
+@pytest.mark.skipif(NODE is None, reason="node not available")
+class TestProseLinkTooltipDom:
+    """Exercise the real DOM-mutating linkifyProseTextNode under node with a tiny
+    DOM shim, so the anchor it builds — and the tooltip it attaches — are tested
+    for real. The shim implements only what the method touches: createElement /
+    createTextNode / createDocumentFragment and node.replaceChild."""
+
+    DOM_SHIM = r"""
+        class Node {
+            constructor(){ this.childNodes = []; this.parentNode = null; }
+            appendChild(c){ c.parentNode = this; this.childNodes.push(c); return c; }
+            replaceChild(neu, old){
+                const i = this.childNodes.indexOf(old);
+                if (i < 0) return;
+                // A fragment splices its children in place.
+                const kids = (neu.nodeType === 11) ? neu.childNodes.slice() : [neu];
+                kids.forEach(k => { k.parentNode = this; });
+                this.childNodes.splice(i, 1, ...kids);
+            }
+        }
+        class TextNode extends Node {
+            constructor(v){ super(); this.nodeType = 3; this.nodeValue = v; }
+            get textContent(){ return this.nodeValue; }
+        }
+        class Element extends Node {
+            constructor(tag){ super(); this.nodeType = 1; this.tagName = tag.toUpperCase();
+                this.attributes = {}; this.dataset = {}; this._classes = new Set();
+                this._href=''; this._target=''; this._rel=''; }
+            set className(v){ this._classes = new Set(String(v).split(/\s+/).filter(Boolean)); }
+            get className(){ return Array.from(this._classes).join(' '); }
+            get classList(){ const s=this._classes; return { add:(c)=>s.add(c), contains:(c)=>s.has(c) }; }
+            setAttribute(k,v){ this.attributes[k]=v; }
+            getAttribute(k){ return this.attributes[k]; }
+            set href(v){ this._href=v; } get href(){ return this._href; }
+            set target(v){ this._target=v; } get target(){ return this._target; }
+            set rel(v){ this._rel=v; } get rel(){ return this._rel; }
+            set textContent(v){ this.childNodes=[new TextNode(v)]; } get textContent(){ return this.childNodes.map(c=>c.textContent||'').join(''); }
+        }
+        class Fragment extends Node { constructor(){ super(); this.nodeType = 11; } }
+        const document = {
+            createElement:(t)=>new Element(t),
+            createTextNode:(v)=>new TextNode(v),
+            createDocumentFragment:()=>new Fragment(),
+        };
+    """
+
+    def _run_linkify(self, meta: dict, prose_text: str) -> dict:
+        """Linkify a single prose text node; return a serialized view of the result
+        children (anchors carry class/href/target/rel/text/tooltip/aria)."""
+        template = Path(DEFAULT_TEMPLATE).read_text(encoding="utf-8")
+        extract = TestProseLinksBehavior._extract_method
+        methods = [
+            "githubFileHref", "githubTreeOrBlobHref", "getRepoRoot", "normalizeFileRef",
+            "proseLinkMode", "normalizeLinkMap", "proseLinkRegexes", "resolveProseHref",
+            "normalizeGlossary", "normalizeGlossaryHref", "glossaryRegex",
+            "glossaryLinkLookup", "proseLinkTooltip", "linkifyProseTextNode",
+        ]
+        method_src = ",\n".join(extract(template, m) for m in methods)
+        harness = textwrap.dedent(
+            """
+            %s
+            const DATA = %s;
+            const obj = {
+            %s
+            };
+            // Build a parent element holding one text node, then linkify it.
+            const parent = document.createElement('div');
+            const node = document.createTextNode(%s);
+            parent.appendChild(node);
+            const res = obj.proseLinkRegexes(obj.normalizeLinkMap());
+            obj.linkifyProseTextNode(node, res, obj.proseLinkMode(), obj.normalizeLinkMap());
+            const out = parent.childNodes.map(c => {
+                if (c.nodeType === 3) return { type: 'text', text: c.nodeValue };
+                return {
+                    type: 'a',
+                    class: c.className,
+                    href: c.href,
+                    target: c.target,
+                    rel: c.rel,
+                    text: c.textContent,
+                    tooltip: c.dataset.glossaryTooltip || null,
+                    aria: c.getAttribute('aria-label') || null,
+                };
+            });
+            console.log(JSON.stringify(out));
+            """
+        ) % (
+            self.DOM_SHIM,
+            json.dumps({"meta": meta} if "glossary" not in meta else {"meta": {k: v for k, v in meta.items() if k != "glossary"}, "glossary": meta["glossary"]}),
+            method_src,
+            json.dumps(prose_text),
+        )
+        proc = subprocess.run([NODE, "-e", harness], capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout.strip())
+
+    GH_META = {"repo": "github.com/example-org/example-repo", "git": {"branch": "main"}}
+
+    def _anchors(self, result):
+        return [c for c in result if c["type"] == "a"]
+
+    def test_link_map_object_form_produces_anchor_with_tooltip(self):
+        meta = {
+            **self.GH_META,
+            "link_mode": "github",
+            "link_map": {"project-adopt": {"path": "infra/live/prod/project-adopt", "tooltip": "Adopts the live project"}},
+        }
+        result = self._run_linkify(meta, "We run project-adopt last.")
+        anchors = self._anchors(result)
+        assert len(anchors) == 1
+        a = anchors[0]
+        assert a["text"] == "project-adopt"
+        assert "xref" in a["class"] and "glossary-term" in a["class"]
+        assert a["tooltip"] == "Adopts the live project"
+        assert a["aria"] == "Adopts the live project"
+        assert a["href"].endswith("/tree/main/infra/live/prod/project-adopt")
+        # Still a real link.
+        assert a["target"] == "_blank"
+        assert "noreferrer" in a["rel"]
+
+    def test_inline_markdown_title_becomes_tooltip(self):
+        meta = {**self.GH_META, "link_mode": "github"}
+        result = self._run_linkify(meta, 'See [the runbook](https://example.com/rb "How to recover") for steps.')
+        anchors = self._anchors(result)
+        assert len(anchors) == 1
+        a = anchors[0]
+        assert a["text"] == "the runbook"
+        assert a["href"] == "https://example.com/rb"
+        assert a["tooltip"] == "How to recover"
+        assert "glossary-term" in a["class"]
+
+    def test_plain_markdown_link_has_no_tooltip(self):
+        meta = {**self.GH_META, "link_mode": "github"}
+        result = self._run_linkify(meta, "See [the runbook](https://example.com/rb) for steps.")
+        anchors = self._anchors(result)
+        assert len(anchors) == 1
+        assert anchors[0]["tooltip"] is None
+        assert "glossary-term" not in anchors[0]["class"]
+
+    def test_link_inherits_glossary_tooltip_by_text(self):
+        meta = {
+            **self.GH_META,
+            "link_mode": "github",
+            "link_map": {"Terragrunt": "infra/live/dev"},
+            "glossary": [{"term": "Terragrunt", "definition": "IaC orchestration tool"}],
+        }
+        result = self._run_linkify(meta, "We adopt Terragrunt for IaC.")
+        anchors = self._anchors(result)
+        assert len(anchors) == 1
+        a = anchors[0]
+        assert a["text"] == "Terragrunt"
+        assert a["tooltip"] is not None
+        assert "Terragrunt" in a["tooltip"] and "IaC orchestration tool" in a["tooltip"]
+        assert "glossary-term" in a["class"]
+
+    def test_link_inherits_glossary_tooltip_by_target_path(self):
+        meta = {
+            **self.GH_META,
+            "link_mode": "github",
+            "link_map": {"the audit module": "infra/modules/audit-logging"},
+            "glossary": [{"term": "audit-logging", "definition": "Org-level data access logs", "file": "infra/modules/audit-logging"}],
+        }
+        # Link text does not match the glossary term, but the resolved target path does.
+        result = self._run_linkify(meta, "Configured by the audit module here.")
+        anchors = self._anchors(result)
+        assert len(anchors) == 1
+        a = anchors[0]
+        assert a["tooltip"] is not None
+        assert "audit-logging" in a["tooltip"] and "Org-level data access logs" in a["tooltip"]
+
+    def test_explicit_tooltip_beats_glossary_inheritance(self):
+        meta = {
+            **self.GH_META,
+            "link_mode": "github",
+            "link_map": {"Terragrunt": {"path": "infra/live/dev", "tooltip": "Our pinned wrapper"}},
+            "glossary": [{"term": "Terragrunt", "definition": "IaC orchestration tool"}],
+        }
+        result = self._run_linkify(meta, "We adopt Terragrunt for IaC.")
+        anchors = self._anchors(result)
+        assert len(anchors) == 1
+        assert anchors[0]["tooltip"] == "Our pinned wrapper"
+
+    def test_path_link_with_no_matching_glossary_stays_untooltipd(self):
+        meta = {
+            **self.GH_META,
+            "link_mode": "github",
+            "glossary": [{"term": "Terragrunt", "definition": "IaC orchestration tool"}],
+        }
+        result = self._run_linkify(meta, "Edit infra/live/dev to change it.")
+        anchors = self._anchors(result)
+        assert len(anchors) == 1
+        a = anchors[0]
+        assert a["text"] == "infra/live/dev"
+        assert a["tooltip"] is None
+        assert "glossary-term" not in a["class"]

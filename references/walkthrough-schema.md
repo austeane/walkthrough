@@ -42,7 +42,10 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
   "detail_level": "both/toggleable",
   "media_mode": "none",
   "link_mode": "github",
-  "link_map": { "project-foundation": "infra/live/dev/project-foundation" }
+  "link_map": {
+    "project-foundation": "infra/live/dev/project-foundation",
+    "project-adopt": { "path": "infra/live/prod/project-adopt", "tooltip": "Adopts the live client project as-is (zero-diff)." }
+  }
 }
 ```
 
@@ -62,17 +65,32 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
 | `detail_level` | string | Desired depth, e.g. `"high-level"`, `"technical"`, or `"both/toggleable"`. Controls depth, not breadth. |
 | `media_mode` | string | Screenshot mode: `"none"`, `"extract"`, `"capture"`, or `"both"` |
 | `link_mode` | string | Controls how prose links resolve: `"github"` (build GitHub `blob`/`tree` links from `meta.repo` + branch), `"editor"` (local `cursor://` links via `meta.repo_root`), or `"off"` (paths/identifiers stay plain text; explicit markdown links still render). When omitted, defaults to `"github"` when `meta.repo` is a usable GitHub repo, else `"editor"` when `repo_root` is set, else `"off"`. |
-| `link_map` | object | Optional `{ "<token>": "<repo-relative-path>" }` map. Bare identifiers in prose that are not literal paths (unit/module names like `project-foundation`) are matched as whole words and linked to the mapped path. Longer tokens win over shorter prefixes. |
-
+| `link_map` | object | Optional `{ "<token>": <value> }` map. Bare identifiers in prose that are not literal paths (unit/module names like `project-foundation`) are matched as whole words and linked. Longer tokens win over shorter prefixes. The value is **either** a string repo-relative path (`"infra/live/dev/project-foundation"`) **or** an object `{ "path": "<repo-relative-path>", "tooltip": "<hover text>" }`. The object form may use `"href"` instead of `"path"` for an external URL, and its `"tooltip"` becomes a hover tooltip on the rendered link (see Prose links → tooltips). |
 ### Prose links
 
 Beyond the glossary, the HTML viewer makes hyperlinking a first-class, general capability over narrative prose (titles, summaries, takeaways, intents, claims, callouts, end-state architecture/constraints — the same targets the glossary annotates). Three layers, all applied client-side after load, before the glossary, so links never double-wrap (no nested anchors):
 
 1. **Auto path-linkify.** Repo-relative path tokens (`infra/live/dev`, `.github/workflows/infra.yml`, `infra/modules/monitoring/main.tf`, `scripts/ci/check-iam-authority.sh`, `justfile`) are detected and turned into links per `link_mode` — `blob` for files (last segment has a dot, or a known extensionless filename like `justfile`/`Dockerfile`), `tree` for directories. No authoring needed.
-2. **`meta.link_map` identifiers.** For bare names that are not literal paths, map the token to a repo-relative path; matched as whole words and linked the same way.
-3. **Inline markdown links.** `[label](https://…)` anywhere in prose renders as a real anchor — the general escape hatch for ANY link. Absolute URLs (`http(s)`, `mailto:`, `cursor://`, `vscode://`, `#anchor`) pass through verbatim regardless of `link_mode`; bare paths inside a markdown link resolve through `link_mode` like an auto-linkified path.
+2. **`meta.link_map` identifiers.** For bare names that are not literal paths, map the token to a repo-relative path; matched as whole words and linked the same way. The mapped value may be a string path or an object `{ "path", "tooltip" }` (see below).
+3. **Inline markdown links.** `[label](https://…)` anywhere in prose renders as a real anchor — the general escape hatch for ANY link. Absolute URLs (`http(s)`, `mailto:`, `cursor://`, `vscode://`, `#anchor`) pass through verbatim regardless of `link_mode`; bare paths inside a markdown link resolve through `link_mode` like an auto-linkified path. The standard markdown title syntax is supported: `[label](url "hover text")` or `[label](url 'hover text')` attaches the title as a hover tooltip (see below). Plain `[label](url)` stays untooltip'd.
 
 Links are skipped inside code, diffs, commands, existing anchors, and glossary terms. Walkthroughs that set none of these meta keys render exactly as before (the default mode is inferred from `meta.repo`/`meta.repo_root`).
+
+#### Hover tooltips on prose links
+
+Any link the viewer builds can carry a hover tooltip, reusing the same body-level tooltip engine the glossary uses (so it can never be clipped and flips below the link when there is no room above). Tooltip text is resolved by precedence, top to bottom:
+
+1. **Explicit per-link tooltip.** A markdown title (`[label](url "hover text")`) or a `meta.link_map` object value with a `tooltip`:
+
+   ```json
+   "link_map": {
+     "project-adopt": { "path": "infra/live/prod/project-adopt", "tooltip": "Adopts the live client project as-is (zero-diff)." }
+   }
+   ```
+
+2. **Glossary inheritance.** If there is no explicit tooltip, the link inherits a glossary entry's tooltip when **either** the link's visible text matches a glossary `term` or alias (case-insensitive, same whole-word rules as glossary annotation) **or** the link's resolved repo-relative target equals a glossary entry's `file`. So a `link_map`/path link to `infra/modules/audit-logging` automatically gets the `audit-logging` glossary tooltip, and a `link_map` token whose label is `Terragrunt` inherits the `Terragrunt` glossary tooltip — no duplicate authoring.
+
+A tooltip'd link stays a real link: clicking still navigates (`blob`/`tree`/editor/external per `link_mode`); only hover/focus reveals the tooltip. Links with no explicit tooltip and no glossary match render exactly as before (no tooltip).
 
 ## Glossary
 

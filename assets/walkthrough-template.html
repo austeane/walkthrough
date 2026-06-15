@@ -951,6 +951,9 @@
             text-decoration-thickness: 1px;
         }
         .xref:hover { text-decoration-style: solid; color: var(--accent); }
+        /* An xref that also carries a hover tooltip (glossary-term) is still a
+           real link — keep the link cursor rather than the glossary `help` one. */
+        .xref.glossary-term { cursor: pointer; }
 
         /* =========================================================
            REVEAL ANIMATION
@@ -2093,6 +2096,13 @@
             return 'off';
         }
 
+        /* link_map values come in two shapes:
+             "token": "repo/rel/path"                      (string, current)
+             "token": { "path": "repo/rel/path",           (object)
+                        "tooltip": "hover text" }
+           An object may use "href" instead of "path" for an external URL.
+           Either form yields { token, target, tooltip } — tooltip is '' when
+           the author gave none (precedence then falls through to glossary). */
         normalizeLinkMap() {
             const meta = (DATA && DATA.meta) || {};
             const raw = meta.link_map;
@@ -2100,13 +2110,73 @@
             if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
                 Object.keys(raw).forEach(token => {
                     const tok = String(token || '').trim();
-                    const target = String(raw[token] || '').trim();
-                    if (tok && target) out.push({ token: tok, target });
+                    if (!tok) return;
+                    const val = raw[token];
+                    let target = '';
+                    let tooltip = '';
+                    if (val && typeof val === 'object' && !Array.isArray(val)) {
+                        target = String(val.path || val.href || '').trim();
+                        tooltip = String(val.tooltip || '').trim();
+                    } else {
+                        target = String(val || '').trim();
+                    }
+                    if (target) out.push({ token: tok, target, tooltip });
                 });
             }
             // Longest token first so a longer identifier wins over a prefix.
             out.sort((a, b) => b.token.length - a.token.length);
             return out;
+        }
+
+        /* Glossary lookup for the prose-link pass: a link anchor can inherit a
+           glossary entry's tooltip when its visible text matches a term/alias
+           (case-insensitive) OR its resolved repo-relative target equals an
+           entry's file. Built once (memoized) and shared, so we never reparse
+           the glossary per node. Returns { byText, byPath } keyed lowercase, or
+           null when there is no glossary. */
+        glossaryLinkLookup() {
+            if (this._glossaryLinkLookup !== undefined) return this._glossaryLinkLookup;
+            const raw = (DATA && (DATA.glossary || (DATA.overview && DATA.overview.glossary))) || [];
+            const entries = this.normalizeGlossary(raw);
+            if (!entries.length) {
+                this._glossaryLinkLookup = null;
+                return null;
+            }
+            const byText = new Map();
+            const byPath = new Map();
+            // Longer terms first are already the sort order; first-write-wins keeps
+            // the most specific entry for a given text/path key.
+            entries.forEach(entry => {
+                (entry.patterns || []).forEach(p => {
+                    const k = String(p || '').trim().toLowerCase();
+                    if (k && !byText.has(k)) byText.set(k, entry.tooltip);
+                });
+                if (entry.filePath) {
+                    const k = entry.filePath.replace(/^\.?\//, '').replace(/^\/+/, '').toLowerCase();
+                    if (k && !byPath.has(k)) byPath.set(k, entry.tooltip);
+                }
+            });
+            this._glossaryLinkLookup = { byText, byPath };
+            return this._glossaryLinkLookup;
+        }
+
+        /* Resolve the tooltip for a link anchor by precedence:
+             1. explicit  (markdown title / link_map object tooltip)
+             2. glossary by visible text  (term or alias, case-insensitive)
+             3. glossary by resolved repo-relative target path
+           `targetPath` is the path/url the link points at (pre-resolution); only
+           a repo-relative path can match a glossary file. */
+        proseLinkTooltip(explicit, label, targetPath) {
+            const exp = String(explicit || '').trim();
+            if (exp) return exp;
+            const gloss = this.glossaryLinkLookup();
+            if (!gloss) return '';
+            const text = String(label || '').trim().toLowerCase();
+            if (text && gloss.byText.has(text)) return gloss.byText.get(text);
+            const path = String(targetPath || '').trim()
+                .replace(/^\.?\//, '').replace(/^\/+/, '').toLowerCase();
+            if (path && gloss.byPath.has(path)) return gloss.byPath.get(path);
+            return '';
         }
 
         proseTargetSelector() {
@@ -2127,9 +2197,10 @@
             const PATH = '(?:infra|scripts|docs|services|assets|tests|references|src|e2e|db|likec4|\\.github|\\.agents)/[A-Za-z0-9_./-]*[A-Za-z0-9_]';
             const ROOT_FILES = '(?:justfile|Justfile|pyproject\\.toml|README\\.md)';
             const path = new RegExp('(?:^|(?<![\\w/.\\-]))(' + PATH + '|' + ROOT_FILES + ')(?![\\w/.\\-])');
-            // Markdown links: [label](url). url may be http(s), cursor://, vscode://,
-            // mailto:, or a repo-relative/absolute path.
-            const md = /\[([^\]\n]+)\]\((\s*[^)\s]+\s*)\)/;
+            // Markdown links: [label](url) or [label](url "title") / [label](url 'title').
+            // url may be http(s), cursor://, vscode://, mailto:, or a repo-relative/
+            // absolute path. When present, the title becomes the link's hover tooltip.
+            const md = /\[([^\]\n]+)\]\(\s*([^)\s]+)(?:\s+(?:"([^"]*)"|'([^']*)'))?\s*\)/;
             let identifier = null;
             if (linkMap.length) {
                 const alt = linkMap
@@ -2187,11 +2258,18 @@
                 // consumed (path/id); recompute the token's real start.
                 let tokenStart = best.index;
                 let label, href, consumeLen;
+                // `explicitTip` is an author-supplied tooltip (md title / link_map
+                // object); `targetPath` is the repo-relative path the link resolves
+                // to (used to match a glossary entry's file). Both feed precedence.
+                let explicitTip = '';
+                let targetPath = '';
 
                 if (best.kind === 'md') {
                     label = best.m[1];
                     const url = best.m[2].trim();
+                    explicitTip = (best.m[3] != null ? best.m[3] : (best.m[4] != null ? best.m[4] : '')).trim();
                     href = this.resolveProseHref(url, mode, /*isPath*/ true, /*explicit*/ true);
+                    targetPath = url;
                     consumeLen = full.length;
                 } else {
                     const token = best.m[1];
@@ -2200,9 +2278,14 @@
                     consumeLen = (tokenStart - best.index) + token.length;
                     if (best.kind === 'path') {
                         href = this.resolveProseHref(token, mode, /*isPath*/ true, /*explicit*/ false);
+                        targetPath = token;
                     } else {
                         const entry = linkMap.find(e => e.token === token);
                         href = entry ? this.resolveProseHref(entry.target, mode, /*isPath*/ true, /*explicit*/ false) : '';
+                        if (entry) {
+                            explicitTip = entry.tooltip || '';
+                            targetPath = entry.target;
+                        }
                     }
                 }
 
@@ -2216,6 +2299,18 @@
                     a.target = '_blank';
                     a.rel = 'noopener noreferrer';
                     a.textContent = label;
+                    // Tooltip: explicit author text, else inherited from the glossary
+                    // by visible text or by resolved repo-relative target. When a
+                    // tooltip applies, add `glossary-term` so the existing body-level
+                    // tooltip engine shows it (zero engine changes); the anchor stays
+                    // a real link so clicking still navigates. The glossary pass skips
+                    // it because it lives inside an <a> (and now also .glossary-term).
+                    const tip = this.proseLinkTooltip(explicitTip, label, targetPath);
+                    if (tip) {
+                        a.classList.add('glossary-term');
+                        a.dataset.glossaryTooltip = tip;
+                        a.setAttribute('aria-label', tip.replace(/\s+/g, ' '));
+                    }
                     frag.appendChild(a);
                     changed = true;
                 } else {
@@ -2428,11 +2523,16 @@
                 const tooltip = definition ? title + '\n' + definition : title;
                 const href = this.normalizeGlossaryHref(entry);
                 const defaultMax = href ? 20 : 4;
+                // Keep the repo-relative file path (if any) so the prose-link pass
+                // can match a link's resolved target against a glossary entry's file.
+                const filePath = String(entry.file || entry.github_path || entry.path || '').trim();
                 byKey.set(key, {
                     key,
                     term,
                     tooltip,
                     href,
+                    patterns,
+                    filePath,
                     regex: this.glossaryRegex(patterns),
                     max: Number.isFinite(entry.max_occurrences) ? Math.max(1, entry.max_occurrences) : defaultMax,
                 });
