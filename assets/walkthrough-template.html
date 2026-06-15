@@ -1120,14 +1120,14 @@
             <span class="topbar__title">{{ data.overview.goal | default("Walkthrough") }}</span>
         </div>
         <div class="topbar__right">
-            <div class="view-seg" id="viewSeg" role="group" aria-label="Walkthrough view — end state or journey">
+            {% if ui.view_switcher %}<div class="view-seg" id="viewSeg" role="group" aria-label="Walkthrough view — end state or journey">
                 <button class="view-seg__opt" id="viewEndstate" type="button" data-view-opt="endstate" aria-pressed="true" title="Show just where the work landed">End state</button>
                 <button class="view-seg__opt" id="viewJourney" type="button" data-view-opt="journey" aria-pressed="false" title="Show how we got there">Journey</button>
             </div>
-            <div class="search-wrap"><input type="text" class="search" id="searchInput" placeholder="Search…" aria-label="Search steps"></div>
+            {% endif %}<div class="search-wrap"><input type="text" class="search" id="searchInput" placeholder="Search…" aria-label="Search steps"></div>
             <button class="tb-btn" id="expandAll" type="button">Expand all</button>
-            <button class="tb-btn mode-toggle" id="modeToggle" type="button" aria-label="Toggle reading / present mode"><span id="modeLabel">Present</span></button>
-            <button class="tb-btn" id="themeToggle" type="button" aria-label="Toggle theme"><span class="theme-icon">&#9790;</span></button>
+            {% if ui.present_mode %}<button class="tb-btn mode-toggle" id="modeToggle" type="button" aria-label="Toggle reading / present mode"><span id="modeLabel">Present</span></button>
+            {% endif %}<button class="tb-btn" id="themeToggle" type="button" aria-label="Toggle theme"><span class="theme-icon">&#9790;</span></button>
         </div>
     </header>
 
@@ -1174,7 +1174,7 @@
                     {% if data.overview._video.caption %}<figcaption class="wt-video__cap">{{ data.overview._video.caption }}</figcaption>{% endif %}
                 </figure>
                 {% endif %}
-                <div class="stat-strip reveal">
+                {% if ui.stats %}<div class="stat-strip reveal">
                     <div class="stat"><span class="stat__n" data-stat="steps">{{ data.steps | length }}</span><span class="stat__l">steps</span></div>
                     <div class="stat"><span class="stat__n" data-stat="files">{{ stats.files }}</span><span class="stat__l">files</span></div>
                     <div class="stat"><span class="stat__n" data-stat="commands">{{ stats.commands }}</span><span class="stat__l">commands</span></div>
@@ -1182,7 +1182,7 @@
                     <div class="stat"><span class="stat__n" data-stat="fixes">{{ stats.fixes }}</span><span class="stat__l">fixes</span></div>
                     <div class="stat"><span class="stat__n" id="readTime">&ndash;</span><span class="stat__l">min read</span></div>
                 </div>
-                {% if stats.inferred or stats.speculative %}
+                {% endif %}{% if ui.confidence_legend and (stats.inferred or stats.speculative) %}
                 <div class="legend reveal">
                     <span class="legend__label">Confidence</span>
                     <span class="legend__item legend__item--grounded"><span class="legend__swatch"></span><span class="legend__key">grounded</span><span>in the logs</span></span>
@@ -1499,7 +1499,7 @@
     </main>
 
     <!-- ===================== PRESENT VIEW (deck) ===================== -->
-    <div class="deck-viewport" id="deckViewport" aria-hidden="true">
+    {% if ui.present_mode %}<div class="deck-viewport" id="deckViewport" aria-hidden="true">
         <div class="deck-stage" id="deckStage">
             <section class="slide slide--title active" data-slide="0">
                 <div class="slide__inner">
@@ -1516,13 +1516,13 @@
                     {% if data.overview.summary %}
                     <ul class="slide__summary"{% if data.overview._end_state_summary %} data-view-tag="journey"{% endif %}>{% for item in data.overview.summary[:3] %}<li>{{ item }}</li>{% endfor %}</ul>
                     {% endif %}
-                    <div class="slide__stats">
+                    {% if ui.stats %}<div class="slide__stats">
                         <div><div class="slide__stat-n" data-stat="steps">{{ data.steps | length }}</div><div class="slide__stat-l">steps</div></div>
                         <div><div class="slide__stat-n" data-stat="files">{{ stats.files }}</div><div class="slide__stat-l">files</div></div>
                         <div><div class="slide__stat-n" data-stat="commands">{{ stats.commands }}</div><div class="slide__stat-l">commands</div></div>
                         <div><div class="slide__stat-n" data-stat="decisions">{{ stats.decisions }}</div><div class="slide__stat-l">decisions</div></div>
                         <div><div class="slide__stat-n" data-stat="fixes">{{ stats.fixes }}</div><div class="slide__stat-l">fixes</div></div>
-                    </div>
+                    </div>{% endif %}
                 </div>
             </section>
             {% for step in data.steps %}
@@ -1556,6 +1556,7 @@
             <button class="deck-btn" id="deckNext" type="button" aria-label="Next slide">&#8250;</button>
         </div>
     </div>
+    {%- endif %}
 
     <!-- ===================== LIGHTBOX ===================== -->
     <div class="lightbox" id="lightbox">
@@ -1742,6 +1743,10 @@
         constructor(app) {
             this.app = app;
             this.viewport = document.getElementById('deckViewport');
+            // Present mode can be disabled via meta.ui.present_mode — the deck DOM
+            // is then not rendered, so the controller stays an inert stub.
+            this.enabled = !!this.viewport;
+            if (!this.enabled) { this.slides = []; this.total = 0; this.index = 0; return; }
             this.stage = document.getElementById('deckStage');
             this.slides = Array.from(this.stage.querySelectorAll('.slide'));
             this.total = this.slides.length;
@@ -1754,7 +1759,7 @@
             this.initTouch();
         }
 
-        isActive() { return document.documentElement.getAttribute('data-mode') === 'present'; }
+        isActive() { return this.enabled && document.documentElement.getAttribute('data-mode') === 'present'; }
 
         scale() {
             const w = this.viewport.clientWidth, h = this.viewport.clientHeight;
@@ -1784,6 +1789,7 @@
         }
 
         goToSlide(i) {
+            if (!this.enabled) return;
             let idx = Math.max(0, Math.min(this.total - 1, i));
             // The view filter can hide slides; snap to the nearest visible one.
             if (this.slides[idx] && getComputedStyle(this.slides[idx]).display === 'none') {
@@ -1800,12 +1806,14 @@
         }
 
         next() {
+            if (!this.enabled) return;
             const vis = this.visibleSlides();
             const cur = vis.indexOf(this.slides[this.index]);
             const nxt = vis[Math.min(vis.length - 1, (cur < 0 ? 0 : cur) + 1)];
             if (nxt) this.goToSlide(this.slides.indexOf(nxt));
         }
         prev() {
+            if (!this.enabled) return;
             const vis = this.visibleSlides();
             const cur = vis.indexOf(this.slides[this.index]);
             const prv = vis[Math.max(0, (cur < 0 ? 0 : cur) - 1)];
@@ -1813,6 +1821,7 @@
         }
 
         activate(i) {
+            if (!this.enabled) return;
             if (typeof i === 'number') this.index = Math.max(0, Math.min(this.total - 1, i));
             this.goToSlide(this.index);
             this.scale();
@@ -1820,6 +1829,7 @@
 
         /* Re-sync after a view change: the visible-slide set may have shrunk/grown. */
         refresh() {
+            if (!this.enabled) return;
             this.goToSlide(this.index);
             this.updateCounter();
         }
@@ -1901,8 +1911,11 @@
 
         /* --- Mode (reading / present) --- */
         initMode() {
-            const saved = localStorage.getItem('walkthrough-mode') || 'reading';
             this.modeToggle = document.getElementById('modeToggle');
+            // Present mode can be disabled via meta.ui.present_mode — without the
+            // toggle (and the deck DOM) the page is locked to reading mode.
+            if (!this.modeToggle) { document.documentElement.setAttribute('data-mode', 'reading'); return; }
+            const saved = localStorage.getItem('walkthrough-mode') || 'reading';
             this.modeToggle.addEventListener('click', () => {
                 const cur = document.documentElement.getAttribute('data-mode');
                 this.setMode(cur === 'present' ? 'reading' : 'present', true);
@@ -1910,6 +1923,7 @@
             this.setMode(saved, false);
         }
         setMode(mode, fromUser) {
+            if (!this.deck.enabled) return;
             document.documentElement.setAttribute('data-mode', mode);
             localStorage.setItem('walkthrough-mode', mode);
             const label = document.getElementById('modeLabel');
@@ -1942,8 +1956,12 @@
             return v === 'journey' ? t !== 'end-state' : t !== 'journey';
         }
         initView() {
-            const saved = localStorage.getItem('walkthrough-view');
             this.viewOpts = Array.from(document.querySelectorAll('.view-seg__opt'));
+            // The view switcher can be disabled via meta.ui.view_switcher — with
+            // no control rendered the document is locked to the end-state view
+            // (the static <html data-view="endstate">), ignoring any saved choice.
+            if (!this.viewOpts.length) { this.setView('endstate', false); return; }
+            const saved = localStorage.getItem('walkthrough-view');
             this.viewOpts.forEach(btn => {
                 btn.addEventListener('click', () => this.setView(btn.dataset.viewOpt, true));
             });
@@ -1999,6 +2017,9 @@
         /* Recompute the overview/deck stat counts so they reflect the active view. */
         recomputeStats() {
             if (typeof DATA === 'undefined' || !DATA || !DATA.steps) return;
+            // The stat strip can be disabled via meta.ui.stats — no [data-stat]
+            // targets are rendered then, so there is nothing to recompute.
+            if (!document.querySelector('[data-stat]')) return;
             const view = document.documentElement.getAttribute('data-view');
             let steps = 0, files = 0, commands = 0, decisions = 0, fixes = 0;
             DATA.steps.forEach(s => {

@@ -70,6 +70,34 @@ VIEW_VALUES = {"both", "journey", "end-state"}
 DEFAULT_DECISION_VIEW = "both"
 DEFAULT_GOTCHA_VIEW = "journey"
 
+# --- Optional UI features (meta.ui) ----------------------------------------
+# Viewer chrome features are gated by booleans in the walkthrough's `meta.ui`
+# block, all defaulting to ON so existing walkthroughs render unchanged:
+#   view_switcher     — the End State / Journey segmented control (drop it to
+#                       lock the document to the End State view).
+#   present_mode      — the slideshow / Present toggle (drop it to keep the page
+#                       in reading mode only).
+#   stats             — the overview/deck stat strip (steps/files/commands/...).
+#   confidence_legend — the grounded/inferred/speculative confidence legend
+#                       (only ever shown when non-grounded claims exist).
+# A missing `meta`/`meta.ui`, or a non-bool/missing key, coerces to the default.
+UI_FEATURE_DEFAULTS = {
+    "view_switcher": True,
+    "present_mode": True,
+    "stats": True,
+    "confidence_legend": True,
+}
+
+
+def resolve_ui_flags(meta: object) -> dict[str, bool]:
+    """Read `meta.ui` feature flags, coercing missing/non-bool values to their default."""
+    ui = meta.get("ui") if isinstance(meta, dict) else None
+    ui = ui if isinstance(ui, dict) else {}
+    return {
+        key: bool(ui.get(key)) if isinstance(ui.get(key), bool) else default
+        for key, default in UI_FEATURE_DEFAULTS.items()
+    }
+
 
 def normalize_view(value: object, default: str) -> str:
     """Clamp an authored `mode` value to one of {both, journey, end-state}."""
@@ -1261,11 +1289,14 @@ def render(
     )
     template = env.get_template(template_name)
 
+    ui = resolve_ui_flags(data.get("meta"))
+
     html = template.render(
         data=data,
         data_json=data_json,
         pygments_css=pygments_css,
         likec4_scripts=likec4_scripts,
+        ui=ui,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

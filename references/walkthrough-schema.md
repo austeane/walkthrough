@@ -66,6 +66,23 @@ The `walkthrough.json` file is the primary output of the walkthrough skill. It c
 | `media_mode` | string | Screenshot mode: `"none"`, `"extract"`, `"capture"`, or `"both"` |
 | `link_mode` | string | Controls how prose links resolve: `"github"` (build GitHub `blob`/`tree` links from `meta.repo` + branch), `"editor"` (local `cursor://` links via `meta.repo_root`), or `"off"` (paths/identifiers stay plain text; explicit markdown links still render). When omitted, defaults to `"github"` when `meta.repo` is a usable GitHub repo, else `"editor"` when `repo_root` is set, else `"off"`. |
 | `link_map` | object | Optional `{ "<token>": <value> }` map. Bare identifiers in prose that are not literal paths (unit/module names like `project-foundation`) are matched as whole words and linked. Longer tokens win over shorter prefixes. The value is **either** a string repo-relative path (`"infra/live/dev/project-foundation"`) **or** an object `{ "path": "<repo-relative-path>", "tooltip": "<hover text>" }`. The object form may use `"href"` instead of `"path"` for an external URL, and its `"tooltip"` becomes a hover tooltip on the rendered link (see Prose links → tooltips). |
+| `ui` | object | Optional `{ "view_switcher": <bool>, "present_mode": <bool>, "stats": <bool>, "confidence_legend": <bool> }` toggling viewer chrome features. All default to `true`; a missing `meta`/`meta.ui`, or a non-bool/missing key, coerces to its default. See Optional UI features below. |
+
+### Optional UI features
+
+`meta.ui` gates independent viewer chrome features. All default to **ON**, so a walkthrough that sets no `meta.ui` (or omits a key) renders exactly as before. Each is an independent boolean — setting one does not affect the others.
+
+| Field | Type | Default | Behavior when `false` |
+|-------|------|---------|------------------------|
+| `view_switcher` | bool | `true` | The End State / Journey segmented control is not rendered, and the document is locked to the **End State** view (`<html data-view="endstate">`). Journey-tagged content stays hidden exactly as it already is in the default end-state view; per-element `data-view-tag`/`mode` semantics still render, the journey-only ones just have no control to flip them. The viewer JS is null-guarded so nothing throws when the control is absent. |
+| `present_mode` | bool | `true` | The **Present** toggle and the entire slideshow deck (`.slide` sections, `#deckViewport`) are not rendered, and the page is locked to reading mode (`<html data-mode="reading">`). The viewer JS / present-mode keyboard shortcuts are null-guarded so nothing throws. |
+| `stats` | bool | `true` | The overview **stat strip** (steps / files / commands / decisions / fixes / min read) and its present-mode mirror (`.slide__stats`) are not rendered. The underlying counts are still computed (they also gate the confidence legend); only the displayed strips are dropped. The per-view stat-recompute JS is null-guarded so nothing throws when no `[data-stat]` targets exist. |
+| `confidence_legend` | bool | `true` | The **confidence legend** (grounded / inferred / speculative) is never rendered, even when non-grounded claims exist. When `true` (the default) the legend still only renders if the walkthrough has at least one `inferred`/`speculative` claim. |
+
+```json
+"ui": { "view_switcher": false, "present_mode": false, "stats": false, "confidence_legend": false }
+```
+
 ### Prose links
 
 Beyond the glossary, the HTML viewer makes hyperlinking a first-class, general capability over narrative prose (titles, summaries, takeaways, intents, claims, callouts, end-state architecture/constraints — the same targets the glossary annotates). Three layers, all applied client-side after load, before the glossary, so links never double-wrap (no nested anchors):

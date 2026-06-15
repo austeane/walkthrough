@@ -1036,6 +1036,183 @@ class TestViewModes:
         assert prepared["overview"]["_gotcha_index"][0]["view"] == "journey"
 
 
+class TestUiFeatureFlags:
+    """meta.ui gates the view switcher, present mode, stat strip, and confidence
+    legend; all default ON so existing walkthroughs render unchanged."""
+
+    ALL_ON = {
+        "view_switcher": True,
+        "present_mode": True,
+        "stats": True,
+        "confidence_legend": True,
+    }
+
+    def _render(self, tmp_path: Path, walkthrough: dict) -> str:
+        input_path = tmp_path / "walkthrough.json"
+        output_path = tmp_path / "walkthrough.html"
+        input_path.write_text(json.dumps(walkthrough), encoding="utf-8")
+        render(input_path, output_path, DEFAULT_TEMPLATE)
+        return output_path.read_text(encoding="utf-8")
+
+    def _walkthrough(self, ui: dict | None = None) -> dict:
+        meta = {"repo_root": "/tmp/p"}
+        if ui is not None:
+            meta["ui"] = ui
+        return {
+            "meta": meta,
+            "overview": {"goal": "G", "summary": ["A line."]},
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Only step",
+                    "intent": "Do the thing",
+                    # A non-grounded claim ensures the confidence legend would
+                    # otherwise render (the legend shows only when one exists).
+                    "claims": [
+                        {"text": "It works.", "confidence": "grounded"},
+                        {"text": "Probably fast.", "confidence": "inferred"},
+                    ],
+                }
+            ],
+        }
+
+    def test_resolve_ui_flags_defaults_to_all_on(self):
+        # Missing meta, missing meta.ui, and non-bool/missing keys all coerce to True.
+        assert render_html.resolve_ui_flags(None) == self.ALL_ON
+        assert render_html.resolve_ui_flags({}) == self.ALL_ON
+        assert render_html.resolve_ui_flags({"ui": {}}) == self.ALL_ON
+        assert render_html.resolve_ui_flags({"ui": {"view_switcher": "no"}}) == self.ALL_ON
+        assert render_html.resolve_ui_flags({"ui": {"stats": 1}}) == self.ALL_ON
+
+    def test_resolve_ui_flags_honors_explicit_bools(self):
+        assert render_html.resolve_ui_flags(
+            {"ui": {
+                "view_switcher": False,
+                "present_mode": False,
+                "stats": False,
+                "confidence_legend": False,
+            }}
+        ) == {
+            "view_switcher": False,
+            "present_mode": False,
+            "stats": False,
+            "confidence_legend": False,
+        }
+        # Flags are independent — setting one leaves the others at their default.
+        assert render_html.resolve_ui_flags({"ui": {"stats": False}}) == {
+            "view_switcher": True,
+            "present_mode": True,
+            "stats": False,
+            "confidence_legend": True,
+        }
+
+    def test_default_absent_meta_ui_keeps_all_features(self, tmp_path: Path):
+        html = self._render(tmp_path, self._walkthrough(ui=None))
+        assert 'id="viewSeg"' in html
+        assert 'id="modeToggle"' in html
+        # The deck slideshow renders by default.
+        assert 'id="deckViewport"' in html
+        assert 'class="slide slide--title active"' in html
+        # The stat strip and the confidence legend render by default.
+        assert 'class="stat-strip' in html
+        assert 'class="legend reveal"' in html
+
+    def test_view_switcher_false_omits_control_and_locks_endstate(self, tmp_path: Path):
+        html = self._render(
+            tmp_path, self._walkthrough(ui={"view_switcher": False})
+        )
+        # The segmented control and its buttons are gone.
+        assert 'id="viewSeg"' not in html
+        assert 'id="viewEndstate"' not in html
+        assert 'id="viewJourney"' not in html
+        # The document is locked to the end-state view.
+        assert 'data-view="endstate"' in html
+        # Present mode is independent and still on by default.
+        assert 'id="modeToggle"' in html
+        # Reading content is intact.
+        assert 'id="overview"' in html
+        assert 'data-step-id="step-1"' in html
+
+    def test_present_mode_false_omits_toggle_and_slideshow(self, tmp_path: Path):
+        html = self._render(
+            tmp_path, self._walkthrough(ui={"present_mode": False})
+        )
+        # The Present toggle and the whole deck section are gone.
+        assert 'id="modeToggle"' not in html
+        assert 'id="deckViewport"' not in html
+        assert 'id="deckStage"' not in html
+        assert 'class="slide' not in html
+        # The page stays in reading mode with content intact.
+        assert 'class="reading-view"' in html
+        assert 'data-step-id="step-1"' in html
+        # The view switcher is independent and still on by default.
+        assert 'id="viewSeg"' in html
+
+    def test_both_false_omits_everything_but_keeps_reading(self, tmp_path: Path):
+        html = self._render(
+            tmp_path,
+            self._walkthrough(ui={"view_switcher": False, "present_mode": False}),
+        )
+        assert 'id="viewSeg"' not in html
+        assert 'id="modeToggle"' not in html
+        assert 'id="deckViewport"' not in html
+        assert 'class="slide' not in html
+        # Locked to end-state reading view, content intact, other chrome retained.
+        assert 'data-view="endstate"' in html
+        assert 'class="reading-view"' in html
+        assert 'id="themeToggle"' in html
+        assert 'id="searchInput"' in html
+        assert 'data-step-id="step-1"' in html
+
+    def test_stats_false_omits_stat_strip_both_views(self, tmp_path: Path):
+        html = self._render(tmp_path, self._walkthrough(ui={"stats": False}))
+        # Neither the reading-view strip nor the present-mode mirror renders.
+        assert 'class="stat-strip' not in html
+        assert 'class="slide__stats"' not in html
+        assert 'id="readTime"' not in html
+        # Independent features stay on; reading content intact.
+        assert 'id="viewSeg"' in html
+        assert 'id="modeToggle"' in html
+        assert 'data-step-id="step-1"' in html
+        # The confidence legend is independent and still renders (non-grounded
+        # claim present), proving the stats gate did not collapse it. Match the
+        # rendered markup, not the CSS rule that shares the BEM class name.
+        assert 'class="legend reveal"' in html
+
+    def test_confidence_legend_false_omits_legend_even_with_nongrounded_claims(
+        self, tmp_path: Path
+    ):
+        # Fixture carries an inferred claim, so the legend would normally show.
+        html = self._render(tmp_path, self._walkthrough(ui={"confidence_legend": False}))
+        # The legend markup is gone (the CSS rules sharing the BEM class names
+        # still exist, so assert on the rendered block, not the class token).
+        assert 'class="legend reveal"' not in html
+        assert '<span class="legend__label">Confidence</span>' not in html
+        assert 'class="legend__item legend__item--grounded"' not in html
+        # The stat strip is independent and still renders.
+        assert 'class="stat-strip' in html
+        assert 'data-step-id="step-1"' in html
+
+    def test_confidence_legend_still_absent_when_all_grounded(self, tmp_path: Path):
+        # No non-grounded claim -> legend never rendered, regardless of the flag.
+        walkthrough = {
+            "meta": {"repo_root": "/tmp/p"},
+            "overview": {"goal": "G", "summary": ["A line."]},
+            "steps": [
+                {
+                    "id": "step-1",
+                    "title": "Only step",
+                    "claims": [{"text": "It works.", "confidence": "grounded"}],
+                }
+            ],
+        }
+        html = self._render(tmp_path, walkthrough)
+        assert 'class="legend reveal"' not in html
+        assert '<span class="legend__label">Confidence</span>' not in html
+        # But the stat strip (default on) is present.
+        assert 'class="stat-strip' in html
+
+
 class TestAltitudeLadder:
     """The step layout: takeaway lead -> visible narrative -> collapsed proof."""
 
