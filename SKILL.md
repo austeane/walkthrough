@@ -7,6 +7,9 @@ description: >-
   Use when the user wants to understand what an agent built, review agent work,
   walk through recent changes, onboard onto agent-written code, or generate
   a narrative explanation of a feature/PR built by an AI agent.
+  Supports an end-state mode, requested by asking for an "end state" walkthrough,
+  which describes the system as it is now for a technical product manager, in a
+  plain writing style, with no journey or chronology.
 ---
 
 # Walkthrough Skill
@@ -16,6 +19,61 @@ Generate walkthroughs that teach developers what was built, why, and how — fro
 **Prime directive**: The walkthrough helps the developer understand their own codebase. It is NOT a transcript replay. If an agent did 100 things across 5 sessions, the walkthrough might be 5-10 steps. Compress, group, and editorialize. The right question is "what does this reader need for this purpose?" not "what happened chronologically?"
 
 **Bias**: Prefer brevity and focus over completeness. A strong walkthrough deliberately omits low-signal changes, side quests, routine tool use, and repeated implementation detail. Cover the smallest set of concepts that lets the target reader accomplish the stated purpose.
+
+## End-state mode
+
+Use this mode when the user asks for an "end state" or "end-state" walkthrough, e.g. "/walkthrough end state of the pipeline" or "give me an end-state walkthrough". In this mode the walkthrough describes the system as it is now. It does not tell the story of how the work happened. The reader should not be able to tell that the work was done in stages or that this document was written and then updated.
+
+This mode sets the reader frame for you. Do not run the step 1 questions for audience, purpose, or detail. Use these values and write them into `meta`:
+
+- Audience: a technical product manager. This reader understands software and system design but does not work in this codebase day to day. Write for someone who needs to know what the system does, why it is built this way, what it can and cannot do yet, and what it costs. Keep file paths and symbol names as supporting evidence, not as the main text.
+- Purpose: understand the end state of the system.
+- Detail level: technical, but focused on behavior and product decisions rather than line-by-line code.
+- Architecture: the Descent (destination-first), described in `references/walkthrough-architectures.md`, with its journey beats removed. Use the Descent's destination-first ordering and four of its five reader questions: what exists now, how much can I trust it, why is it shaped this way, and where do I start. Drop the Descent's fifth question, "what fought back", along with its friction steps and its causal-hinge narration, because those describe the journey. Never use the Journey arc.
+
+Still ask the user for scope if it is not clear, and ask about screenshots and diagram tooling as normal.
+
+### Write about the parts, not the journey
+
+Every step explains one part of the system. For each part, say what it is, what it does, why it is built that way, and how it connects to the other parts. Write in the present tense.
+
+Do not write the history of the work. Cut every one of these:
+
+- Chronology words, e.g. "first", "then", "next", "the day started", "this evening", "what the first runs taught us".
+- Group-of-changes or wave framing, e.g. "two groups of changes", "wave 1", "the third wave", "going live".
+- Pull request or commit numbers used as a timeline. You may name a file or a commit as the source of a fact, but never to mark when something happened.
+- "We did X" or "the agent did X". State what the system is. For example, write "the converter writes derivatives to the converted/ prefix", not "we built a converter that writes derivatives".
+
+Organize the steps by component or subsystem. A good order is: what the system is and its parts, then each part in turn, then the parts that hold it together such as the infra and access model and the ownership split, then what is proven and what is deferred, then where to start reading.
+
+### Keep the proof ledger
+
+A technical product manager needs to know what is real. Keep `end_state.constraints` with what is proven and what is not, in plain words and with the measured numbers. Keep live costs, pinned versions, and deferred items named. This block is not journey content, so it stays.
+
+### Lock the view to end state
+
+There is no journey view in this mode. Set `view_switcher: false` in `meta.ui` so the page stays on the End State view. Write `overview.goal` and `overview.summary` in the end-state framing, and also write `overview.end_state`. Tag every step `"mode": "end-state"` or `"both"`. Do not write any step, claim, decision, or gotcha that only makes sense as journey content. If a gotcha is a live constraint today, keep it and tag it `"both"`. If it only describes a past struggle, cut it.
+
+### Write in the plain style
+
+Write every piece of prose in this walkthrough in the user's plain style. Read the rules at `/Users/austin/dev/_libraries/plain-writing-skill/SKILL.md` and apply them to `overview.goal`, `overview.summary`, `end_state.goal`, `end_state.summary`, every step `title`, `takeaway`, and `intent`, every claim, decision, and gotcha, the glossary, and every caption.
+
+The core rules:
+
+- Use simple, everyday words. Prefer "use" over "leverage". Avoid words AI tools overuse, e.g. "delve", "tapestry", "landscape", "robust", and "leverage".
+- Write complete sentences. State one clear thing per sentence. Do not stitch several ideas together with colons or semicolons.
+- Do not use dashes. Join clauses with a period, or with a word such as "and" or "because". Write a range with the word "to", e.g. "0.94 to 0.96". Use a colon only to introduce a list.
+- Do not use jargon without a plain explanation. Do not use analogies or imagery. Do not add filler. Do not use puffery words such as "matters", "robust", or "pivotal".
+- Do not make an inanimate thing take an action it cannot do. Make a person the actor, or use "is" or "are".
+- Use sentence case in headings. Do not use bold as decoration.
+
+After you write the walkthrough JSON, revise it in two passes as the plain-writing skill describes. First, fix anything that breaks the rules. Second, read each sentence again as a stranger and cut any clause that does not add something the reader needs.
+
+### What this overrides
+
+In end-state mode the plain style wins over the house style in this skill. In particular, the takeaway grammar in step 7 welds an outcome to its cause with an em dash. Do not do that here. Write the outcome and its cause as a plain sentence with "because" or "so", or as two sentences.
+
+End-state mode also overrides part of the Descent architecture. The Descent normally keeps one or two friction steps tagged as journey, and it tells a dramatic hinge as a connected sequence of what happened. Do not write those here. Keep a past failure only if it is a live constraint today, and then write it as a present-tense fact in the proof ledger, not as a story of what happened.
 
 ## Setup
 
@@ -53,6 +111,8 @@ Tooling reference, once per machine:
 ## Workflow
 
 ### 1. Reader Frame + Scoping Dialog
+
+**End-state mode**: if the user asked for an "end state" or "end-state" walkthrough, skip the audience, purpose, and detail questions and use the locked frame in [End-state mode](#end-state-mode). Still confirm scope and ask about screenshots and diagram tooling.
 
 Ask the user for the reader frame before discovery unless the answer is self-evident from the prompt. Use AskUserQuestion when available; otherwise ask concise plain-text questions. Store these choices in your notes and in `meta` where possible (`scope`, `audience`, `purpose`, `detail_level`) so the editorial step can obey them.
 
@@ -345,6 +405,8 @@ Provide session cards to the editorial agent with a prompt like:
 The cards are ~2KB each, so 50-60 cards fit in ~120KB — small enough to include alongside the draft walkthrough in a single Opus context window.
 
 Read the walkthrough schema: `references/walkthrough-schema.md`
+
+**End-state mode**: if the user asked for an end-state walkthrough, follow [End-state mode](#end-state-mode). It overrides the audience, purpose, and architecture choices below, requires you to write about the parts and not the journey, and requires the plain-writing pass on every prose field before you render.
 
 **Editorial frame**:
 - **Audience** controls assumed context and tone.
