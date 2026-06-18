@@ -359,6 +359,13 @@
             font-size: 0.72rem; font-weight: 700; letter-spacing: 0.16em;
             text-transform: uppercase; color: var(--accent); margin-bottom: 0.9rem;
         }
+        /* Two decoupled hero columns: left stacks title + video, right stacks
+           summary (+ stats + legend). Each column tops out independently, so the
+           video sits directly under the title rather than waiting on the tallest
+           shared grid row. */
+        .hero__col { display: flex; flex-direction: column; min-width: 0; }
+        .hero__col--left { grid-column: 1; }
+        .hero__col--right { grid-column: 2; }
         .hero__title {
             grid-column: 1;
             font-size: clamp(1.85rem, 1.2rem + 1.9vw, 2.65rem);
@@ -1152,12 +1159,24 @@
                 <div class="hero__eyebrow reveal">Walkthrough{% if data.meta and data.meta.scope %} &middot; {{ data.meta.scope }}{% endif %}</div>
                 {% set goal_long = ((data.overview.goal | default("")) | length) > 140 %}
                 {% set es_goal_long = ((data.overview._end_state_goal | default("")) | length) > 140 %}
+                {# Hero is two decoupled columns so the video tucks directly under the
+                   title (left) while the summary/stats/legend stack at the top (right),
+                   instead of the video waiting on the tallest shared grid row. #}
+                <div class="hero__col hero__col--left">
                 {% if data.overview._end_state_goal %}
                 <h1 class="hero__title{% if es_goal_long %} hero__title--long{% endif %} reveal" data-view-tag="end-state">{{ data.overview._end_state_goal }}</h1>
                 <h1 class="hero__title{% if goal_long %} hero__title--long{% endif %} reveal" data-view-tag="journey">{{ data.overview.goal | default("") }}</h1>
                 {% else %}
                 <h1 class="hero__title{% if goal_long %} hero__title--long{% endif %} reveal">{{ data.overview.goal | default("") }}</h1>
                 {% endif %}
+                {% if data.overview._video %}
+                <figure class="wt-video reveal">
+                    <video controls preload="metadata"{% if data.overview._video.poster %} poster="{{ data.overview._video.poster }}"{% endif %}{% if data.overview._video.embedded %} data-embedded-src="{{ data.overview._video.src }}"{% else %} src="{{ data.overview._video.src }}"{% endif %}></video>
+                    {% if data.overview._video.caption %}<figcaption class="wt-video__cap">{{ data.overview._video.caption }}</figcaption>{% endif %}
+                </figure>
+                {% endif %}
+                </div>
+                <div class="hero__col hero__col--right">
                 {% if data.overview._end_state_summary %}
                 <ul class="hero__summary reveal" data-view-tag="end-state">
                     {% for item in data.overview._end_state_summary %}<li>{{ item }}</li>{% endfor %}
@@ -1167,12 +1186,6 @@
                 <ul class="hero__summary reveal"{% if data.overview._end_state_summary %} data-view-tag="journey"{% endif %}>
                     {% for item in data.overview.summary %}<li>{{ item }}</li>{% endfor %}
                 </ul>
-                {% endif %}
-                {% if data.overview._video %}
-                <figure class="wt-video reveal">
-                    <video controls preload="metadata"{% if data.overview._video.poster %} poster="{{ data.overview._video.poster }}"{% endif %}{% if data.overview._video.embedded %} data-embedded-src="{{ data.overview._video.src }}"{% else %} src="{{ data.overview._video.src }}"{% endif %}></video>
-                    {% if data.overview._video.caption %}<figcaption class="wt-video__cap">{{ data.overview._video.caption }}</figcaption>{% endif %}
-                </figure>
                 {% endif %}
                 {% if ui.stats %}<div class="stat-strip reveal">
                     <div class="stat"><span class="stat__n" data-stat="steps">{{ data.steps | length }}</span><span class="stat__l">steps</span></div>
@@ -1190,6 +1203,7 @@
                     <span class="legend__item legend__item--speculative"><span class="legend__swatch"></span><span class="legend__key">speculative</span><span>editorial call</span></span>
                 </div>
                 {% endif %}
+                </div>
             </div>
             {% if data.steps %}
             <div class="jump-grid reveal">
