@@ -1570,6 +1570,18 @@
     <!-- ===================== DATA + SCRIPT ===================== -->
     <script>const DATA = {{ data_json }};</script>
     <script>
+    /* Persisted UI prefs (theme, mode, end-state/journey view) use
+       localStorage when it is reachable. In a sandboxed artifact iframe
+       (allow-scripts without allow-same-origin) every localStorage access
+       throws SecurityError — which, thrown from initTheme() during App
+       construction, would abort init and leave the whole page inert. Route
+       all access through this try/catch shim: in that sandbox preferences
+       simply do not persist, but the page stays fully interactive. */
+    const safeStore = {
+        get(key) { try { return localStorage.getItem(key); } catch (e) { return null; } },
+        set(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* sandboxed: no-op */ } },
+    };
+
     /* =========================================================
        READING controller
        ========================================================= */
@@ -1872,7 +1884,7 @@
 
         /* --- Theme --- */
         initTheme() {
-            const saved = localStorage.getItem('walkthrough-theme');
+            const saved = safeStore.get('walkthrough-theme');
             if (saved) document.documentElement.setAttribute('data-theme', saved);
             this.updateThemeIcon();
             this.syncLikeC4Theme();
@@ -1880,7 +1892,7 @@
                 const cur = document.documentElement.getAttribute('data-theme');
                 const next = cur === 'dark' ? 'light' : 'dark';
                 document.documentElement.setAttribute('data-theme', next);
-                localStorage.setItem('walkthrough-theme', next);
+                safeStore.set('walkthrough-theme', next);
                 this.updateThemeIcon();
                 this.syncLikeC4Theme();
             });
@@ -1915,7 +1927,7 @@
             // Present mode can be disabled via meta.ui.present_mode — without the
             // toggle (and the deck DOM) the page is locked to reading mode.
             if (!this.modeToggle) { document.documentElement.setAttribute('data-mode', 'reading'); return; }
-            const saved = localStorage.getItem('walkthrough-mode') || 'reading';
+            const saved = safeStore.get('walkthrough-mode') || 'reading';
             this.modeToggle.addEventListener('click', () => {
                 const cur = document.documentElement.getAttribute('data-mode');
                 this.setMode(cur === 'present' ? 'reading' : 'present', true);
@@ -1925,7 +1937,7 @@
         setMode(mode, fromUser) {
             if (!this.deck.enabled) return;
             document.documentElement.setAttribute('data-mode', mode);
-            localStorage.setItem('walkthrough-mode', mode);
+            safeStore.set('walkthrough-mode', mode);
             const label = document.getElementById('modeLabel');
             if (label) label.textContent = mode === 'present' ? 'Reading' : 'Present';
             this.deck.viewport.setAttribute('aria-hidden', mode === 'present' ? 'false' : 'true');
@@ -1961,7 +1973,7 @@
             // no control rendered the document is locked to the end-state view
             // (the static <html data-view="endstate">), ignoring any saved choice.
             if (!this.viewOpts.length) { this.setView('endstate', false); return; }
-            const saved = localStorage.getItem('walkthrough-view');
+            const saved = safeStore.get('walkthrough-view');
             this.viewOpts.forEach(btn => {
                 btn.addEventListener('click', () => this.setView(btn.dataset.viewOpt, true));
             });
@@ -1970,7 +1982,7 @@
         setView(view, fromUser) {
             view = view === 'journey' ? 'journey' : 'endstate';
             document.documentElement.setAttribute('data-view', view);
-            localStorage.setItem('walkthrough-view', view);
+            safeStore.set('walkthrough-view', view);
             this.viewOpts.forEach(btn =>
                 btn.setAttribute('aria-pressed', btn.dataset.viewOpt === view ? 'true' : 'false'));
             this.applyViewVisibility();
